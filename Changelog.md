@@ -1,24 +1,30 @@
-- 2022-06-07	release 0.7.0
-- 2022-06-07	prevent splitting footnotes & pandoc citations
-- 2022-06-01	release 0.6.0
-- 2022-06-01	ignore (fenced) code blocks
-- 2022-05-20	update promo screenshot
-- 2022-05-20	release 0.5.7
-- 2022-05-20	fix deconverting sembr merging blockquotes and lists (#5)
-- 2022-05-20	fix #6
-- 2022-05-20	release 0.5.6
-- 2022-05-20	release 0.5.5
-- 2022-05-20	add minimum line length of 10 chars before sembr applies
-- 2022-05-20	release 0.5.4
-- 2022-05-20	bugfix
-- 2022-05-20	release 0.5.3
-- 2022-05-20	release 0.5.2
-- 2022-05-20	deconvert from sembr even without trailing whitespace (#4)
-- 2022-05-19	release 0.5.1
-- 2022-05-19	fix #2
-- 2022-05-19	fix #1
-- 2022-05-19	release 0.5.0
-- 2022-05-19	first prototype
-- 2022-05-19	description of sembr
-- 2022-05-19	filled out basic info
-- 2022-05-19	Initial commit
+# Changelog
+
+## 0.9.0 — 2026-06-08
+
+- Per-paragraph toggle detection: each paragraph independently adds, removes, or skips sembr based on line-length heuristics
+- Short lines (< 25 chars) cause a paragraph to be skipped — protects poetry, verse, and short-form content
+- `sembr: false` / `sembr: force` front matter key overrides global exclusion settings per file
+- `<!-- sembr-off -->` / `<!-- sembr-on -->` inline escape hatch: regions are never touched and invisible in reading view and export
+- New command: "Wrap selection with sembr-off block" wraps the current selection in escape-hatch comments
+- Migrated to mnaoumov/generator-obsidian-plugin toolchain
+
+## 0.8.0 — 2024-01-01
+
+- Settings panel: exclude folders, notes, and front matter rules from sembr processing
+- Smarter block exclusions: headings, lists, tables, blockquotes, and code blocks are never touched
+- URL and inline code extraction to prevent mid-content breaks
+
+## 0.7.0 — 2022-06-07
+
+- Prevent splitting footnotes and pandoc citations
+
+## 0.6.0 — 2022-06-01
+
+- Ignore fenced code blocks
+
+## 0.5.x — 2022-05-19 to 2022-05-20
+
+- Initial release and early bug fixes
+- Minimum line length before sembr applies
+- Fix deconverting sembr when merging blockquotes and lists
