@@ -1,23 +1,47 @@
 {
-	"name": "{{plugin-id}}",
-	"version": "0.7.0",
-	"description": "{{plugin-desc}}",
-	"main": "main.js",
-	"scripts": {
-		"dev": "node esbuild.config.mjs",
-		"build": "node esbuild.config.mjs production"
-	},
-	"keywords": [],
-	"author": "",
-	"license": "MIT",
-	"devDependencies": {
-		"@types/node": "^16.11.6",
-		"@typescript-eslint/eslint-plugin": "^5.2.0",
-		"@typescript-eslint/parser": "^5.2.0",
-		"builtin-modules": "^3.2.0",
-		"esbuild": "0.13.12",
-		"obsidian": "^0.12.17",
-		"tslib": "2.3.1",
-		"typescript": "4.4.4"
-	}
+  "name": "obsidian-sembr",
+  "version": "0.8.0",
+  "description": "Apply and remove Semantic Line Breaks (SemBr).",
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "semantic-line-breaks",
+    "sembr"
+  ],
+  "license": "MIT",
+  "author": "112345brian",
+  "type": "module",
+  "scripts": {
+    "build": "jiti scripts/build.ts",
+    "build:clean": "jiti scripts/build-clean.ts",
+    "build:compile:typescript": "jiti scripts/build-compile-typescript.ts",
+    "build:compile": "jiti scripts/build-compile.ts",
+    "dev": "jiti scripts/dev.ts",
+    "format": "jiti scripts/format.ts",
+    "format:check": "jiti scripts/format-check.ts",
+    "lint": "jiti scripts/lint.ts",
+    "lint:fix": "jiti scripts/lint-fix.ts",
+    "lint:md": "jiti scripts/lint-md.ts",
+    "lint:md:fix": "jiti scripts/lint-md-fix.ts",
+    "prepare": "jiti scripts/prepare.ts",
+    "spellcheck": "jiti scripts/spellcheck.ts",
+    "version": "jiti scripts/version.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/strictest": "latest",
+    "@types/node": "latest",
+    "jiti": "latest",
+    "obsidian": "latest",
+    "obsidian-dev-utils": "latest",
+    "obsidian-typings": "obsidian-public-latest"
+  },
+  "overrides": {
+    "boolean": "npm:dry-uninstall",
+    "dompurify": "3.0.1",
+    "type-fest": "latest"
+  },
+  "dependencies": {
+    "@commitlint/types": "^21.0.1",
+    "obsidian-integration-testing": "^4.2.3"
+  }
 }
