@@ -6,7 +6,11 @@ import type {
   TAbstractFile
 } from 'obsidian';
 
-import { RangeSetBuilder } from '@codemirror/state';
+import {
+  EditorState,
+  RangeSetBuilder,
+  StateField
+} from '@codemirror/state';
 import {
   Decoration,
   EditorView,
@@ -120,7 +124,7 @@ export class Plugin extends ObsidianPlugin {
     if (!this.settings.showLivePreviewLineBreakMarkers) {
       return [];
     }
-    return [semBrLineBreakMarkerExtension];
+    return [semBrLineBreakMarkerStateField];
   }
 
   private getSemBrFrontmatterOverride(frontmatter: null | Record<string, unknown>): 'false' | 'force' | null {
@@ -259,27 +263,19 @@ export class Plugin extends ObsidianPlugin {
   }
 }
 
-function buildSemBrLineBreakMarkers(view: EditorView): DecorationSet {
+function buildSemBrDecorations(state: EditorState): DecorationSet {
   // @ts-expect-error Obsidian's StateField type is nominally distinct from the direct CodeMirror import.
-  if (!view.state.field(editorLivePreviewField, false)) {
+  if (!state.field(editorLivePreviewField, false)) {
     return Decoration.none;
   }
 
   const builder = new RangeSetBuilder<Decoration>();
-  const doc = view.state.doc;
-  let lastLineNumber = 0;
+  const doc = state.doc;
 
-  for (const range of view.visibleRanges) {
-    for (let pos = range.from; pos <= range.to;) {
-      const line = doc.lineAt(pos);
-      if (line.number !== lastLineNumber && shouldMarkSemBrLineBreak(line.text, line.number, doc)) {
-        builder.add(line.to, line.to + 1, semBrLineBreakMarkerDecoration);
-        lastLineNumber = line.number;
-      }
-      if (line.to >= doc.length) {
-        break;
-      }
-      pos = line.to + 1;
+  for (let lineNum = 1; lineNum <= doc.lines; lineNum++) {
+    const line = doc.line(lineNum);
+    if (shouldMarkSemBrLineBreak(line.text, lineNum, doc)) {
+      builder.add(line.to, line.to + 1, semBrLineBreakMarkerDecoration);
     }
   }
 
@@ -305,7 +301,11 @@ const semBrLineBreakMarkerDecoration = Decoration.replace({
   widget: new SemBrLineBreakMarkerWidget()
 });
 
-const semBrLineBreakMarkerExtension = EditorView.decorations.of(buildSemBrLineBreakMarkers);
+const semBrLineBreakMarkerStateField = StateField.define<DecorationSet>({
+  create: (state) => buildSemBrDecorations(state),
+  provide: (f) => EditorView.decorations.from(f),
+  update: (decorations, tr) => tr.docChanged ? buildSemBrDecorations(tr.state) : decorations.map(tr.changes)
+});
 
 function wrapSelectionWithSemBrOff(editor: Editor): void {
   const selection = editor.getSelection();
