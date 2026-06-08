@@ -5,11 +5,12 @@ const UNORDERED_LIST_LINE_REGEX = /^[-*+]\s/u;
 const ORDERED_LIST_LINE_REGEX = /^\d+\.\s/u;
 const HORIZONTAL_RULE_REGEX = /^(?:---|\*\*\*|___)\s*$/u;
 
-const SEMBR_REMOVE_REGEX = /(?<punc>[.,:;?!—…]) ?\n(?!\n)/gmu;
-const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.,:;?!—…](?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
+const SEMBR_REMOVE_REGEX = /(?<punc>[.,:;?!…]) ?\n(?!\n)/gmu;
+const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.,:;?!…](?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
 const ET_AL_REGEX = /\bet al\. $/u;
 const FOOTNOTE_REGEX = /\n\[\^.*?(?=\[\n\^|\n\n|$)/gsu;
-const SEMBR_LINE_REGEX = /[.,:;?!—…] ?$/u;
+const SEMBR_LINE_REGEX = /[.,:;?!…] ?$/u;
+const EM_DASH_SOFT_BREAK_REGEX = /—\n(?!\n)/gu;
 
 const URL_REGEX = /https?:\/\/\S+/gu;
 const INLINE_CODE_REGEX = /`[^`\n]+`/gu;
@@ -214,6 +215,8 @@ function addSemBrToParagraph(paragraph: string, options: TransformNoteContentOpt
     locators.push(locator);
     return `SEMBR_LOCATOR_${String(idx)}`;
   });
+
+  text = text.replace(EM_DASH_SOFT_BREAK_REGEX, '—');
 
   text = text.replace(
     SEMBR_CLAUSE_REGEX,
