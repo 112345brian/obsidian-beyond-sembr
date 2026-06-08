@@ -13,5 +13,6 @@ export class PluginSettings {
   public idleTimeoutSeconds: number = DEFAULT_IDLE_TIMEOUT_SECONDS;
   public isolatePandocCitations = true;
   public repairLocatorClusters = true;
+  public sentenceOnly = true;
   public showLivePreviewLineBreakMarkers = true;
 }

@@ -7,9 +7,11 @@ const HORIZONTAL_RULE_REGEX = /^(?:---|\*\*\*|___)\s*$/u;
 
 const SEMBR_REMOVE_REGEX = /(?<punc>[.,:;?!…]) ?\n(?!\n)/gmu;
 const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.,:;?!…](?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
+const SEMBR_SENTENCE_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.?!…](?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
 const ET_AL_REGEX = /\bet al\. $/u;
 const FOOTNOTE_REGEX = /\n\[\^.*?(?=\[\n\^|\n\n|$)/gsu;
 const SEMBR_LINE_REGEX = /[.,:;?!…] ?$/u;
+const SEMBR_SENTENCE_LINE_REGEX = /[.?!…] ?$/u;
 const EM_DASH_SOFT_BREAK_REGEX = /—\n(?!\n)/gu;
 
 const URL_REGEX = /https?:\/\/\S+/gu;
@@ -45,11 +47,13 @@ export interface SemBrTransformSettings {
   readonly enableCustomProtectedRegexes: boolean;
   readonly isolatePandocCitations: boolean;
   readonly repairLocatorClusters: boolean;
+  readonly sentenceOnly: boolean;
 }
 export interface TransformNoteContentOptions {
   readonly customProtectedRegexes: readonly RegExp[];
   readonly isolatePandocCitations: boolean;
   readonly repairLocatorClusters: boolean;
+  readonly sentenceOnly: boolean;
 }
 type ParagraphSemBrState = 'add' | 'remove' | 'skip';
 interface ParsedCustomRegexLiteral {
@@ -63,7 +67,8 @@ export function createTransformNoteContentOptions(settings: SemBrTransformSettin
       ? compileCustomProtectedRegexes(settings.customProtectedRegexes)
       : [],
     isolatePandocCitations: settings.isolatePandocCitations,
-    repairLocatorClusters: settings.repairLocatorClusters
+    repairLocatorClusters: settings.repairLocatorClusters,
+    sentenceOnly: settings.sentenceOnly
   };
 }
 
@@ -84,11 +89,12 @@ export function shouldCollapseNewline(lineText: string, lineNumber: number, doc:
   return !isNonProseLine(nextLineText);
 }
 
-export function shouldMarkSemBrLineBreak(lineText: string, lineNumber: number, doc: Text): boolean {
+export function shouldMarkSemBrLineBreak(lineText: string, lineNumber: number, doc: Text, sentenceOnly = false): boolean {
   if (lineNumber >= doc.lines) {
     return false;
   }
-  if (!SEMBR_LINE_REGEX.test(lineText) || lineText.length < SEMBR_MIN_LINE_LENGTH) {
+  const lineRegex = sentenceOnly ? SEMBR_SENTENCE_LINE_REGEX : SEMBR_LINE_REGEX;
+  if (!lineRegex.test(lineText) || lineText.length < SEMBR_MIN_LINE_LENGTH) {
     return false;
   }
   if (isNonProseLine(lineText)) {
@@ -179,6 +185,7 @@ function addGlobalRegexFlag(flags: string): string {
 }
 
 function addSemBrToParagraph(paragraph: string, options: TransformNoteContentOptions): string {
+  const clauseRegex = options.sentenceOnly ? SEMBR_SENTENCE_CLAUSE_REGEX : SEMBR_CLAUSE_REGEX;
   const customMatches: string[] = [];
   const urls: string[] = [];
   const codespans: string[] = [];
@@ -222,7 +229,7 @@ function addSemBrToParagraph(paragraph: string, options: TransformNoteContentOpt
   text = text.replace(EM_DASH_SOFT_BREAK_REGEX, '—');
 
   text = text.replace(
-    SEMBR_CLAUSE_REGEX,
+    clauseRegex,
     (fullMatch: string, clause: string, _trailingSpace: string, offset: number, fullString: string): string => {
       const charAfterMatch = fullString[offset + fullMatch.length];
       const lastPunc = clause.trimEnd().at(-1);
@@ -267,7 +274,7 @@ function compileCustomProtectedRegexes(rawRegexes: readonly string[]): RegExp[] 
   return regexes;
 }
 
-function getParagraphState(paragraph: string): ParagraphSemBrState {
+function getParagraphState(paragraph: string, sentenceOnly = false): ParagraphSemBrState {
   if (!isProseParagraph(paragraph)) {
     return 'skip';
   }
@@ -277,13 +284,14 @@ function getParagraphState(paragraph: string): ParagraphSemBrState {
     return 'add';
   }
 
+  const lineRegex = sentenceOnly ? SEMBR_SENTENCE_LINE_REGEX : SEMBR_LINE_REGEX;
   const allBreaksAreSemBr = lines.every((line, i) => {
     if (i === lines.length - 1) {
       return true;
     }
     const nextLine = lines[i + 1] ?? '';
     return (
-      SEMBR_LINE_REGEX.test(line)
+      lineRegex.test(line)
       && line.length >= SEMBR_MIN_LINE_LENGTH
       && nextLine.length >= SEMBR_MIN_LINE_LENGTH
     );
@@ -421,7 +429,7 @@ function repairBrokenLocatorClusters(str: string): string {
 }
 
 function transformParagraph(paragraph: string, mode: SemBrTransformMode, options: TransformNoteContentOptions): string {
-  const state = getParagraphState(paragraph);
+  const state = getParagraphState(paragraph, options.sentenceOnly);
   if (state === 'skip') {
     return paragraph;
   }

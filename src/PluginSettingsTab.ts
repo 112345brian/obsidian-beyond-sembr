@@ -102,6 +102,19 @@ export class PluginSettingsTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName('Sentence-only breaks')
+      .setDesc('Only insert line breaks at sentence endings (. ? ! …). When off, breaks are also inserted at clause boundaries (, ; :).')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.sentenceOnly)
+          .onChange(convertAsyncToSync(async (value: boolean) => {
+            this.plugin.settings.sentenceOnly = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshEditorExtensions();
+          }));
+      });
+
+    new Setting(containerEl)
       .setName('Use custom protected regexes')
       .setDesc('Apply the custom regex list below when protecting spans from line breaks.')
       .addToggle((toggle) => {

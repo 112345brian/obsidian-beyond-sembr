@@ -139,6 +139,7 @@ export class Plugin extends ObsidianPlugin {
     }
     return [
       semBrExclusionFacet.of((file) => this.isFileEnabledForSemBr(file)),
+      semBrSentenceOnlyFacet.of(this.settings.sentenceOnly),
       semBrLineBreakMarkerStateField
     ];
   }
@@ -221,6 +222,7 @@ export class Plugin extends ObsidianPlugin {
     this.settings.excludedNotes = normalizeStringList(this.settings.excludedNotes);
     this.settings.isolatePandocCitations = normalizeBoolean(this.settings.isolatePandocCitations, true);
     this.settings.repairLocatorClusters = normalizeBoolean(this.settings.repairLocatorClusters, true);
+    this.settings.sentenceOnly = normalizeBoolean(this.settings.sentenceOnly, true);
     this.settings.showLivePreviewLineBreakMarkers = normalizeBoolean(this.settings.showLivePreviewLineBreakMarkers, true);
     if (!Number.isFinite(this.settings.idleTimeoutSeconds) || this.settings.idleTimeoutSeconds < MIN_IDLE_TIMEOUT_SECONDS) {
       this.settings.idleTimeoutSeconds = DEFAULT_IDLE_TIMEOUT_SECONDS;
@@ -295,6 +297,10 @@ const semBrExclusionFacet = Facet.define<(file: TFile) => boolean, ((file: TFile
   combine: (checkers) => checkers[0] ?? null
 });
 
+const semBrSentenceOnlyFacet = Facet.define<boolean, boolean>({
+  combine: (values) => values[0] ?? true
+});
+
 function buildSemBrDecorations(state: EditorState): DecorationSet {
   // @ts-expect-error Obsidian's StateField type is nominally distinct from the direct CodeMirror import.
   if (!state.field(editorLivePreviewField, false)) {
@@ -310,12 +316,13 @@ function buildSemBrDecorations(state: EditorState): DecorationSet {
     }
   }
 
+  const sentenceOnly = state.facet(semBrSentenceOnlyFacet);
   const builder = new RangeSetBuilder<Decoration>();
   const doc = state.doc;
 
   for (let lineNum = 1; lineNum <= doc.lines; lineNum++) {
     const line = doc.line(lineNum);
-    if (shouldMarkSemBrLineBreak(line.text, lineNum, doc)) {
+    if (shouldMarkSemBrLineBreak(line.text, lineNum, doc, sentenceOnly)) {
       builder.add(line.to, line.to + 1, semBrLineBreakMarkerDecoration);
     } else if (shouldCollapseNewline(line.text, lineNum, doc)) {
       builder.add(line.to, line.to + 1, semBrSpaceDecoration);

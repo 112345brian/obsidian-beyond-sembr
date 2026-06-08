@@ -20,7 +20,8 @@ function format(rawContent: string, settings: FixtureSettings = {}, mode: 'add' 
       customProtectedRegexes: settings.customProtectedRegexes ?? [],
       enableCustomProtectedRegexes: settings.enableCustomProtectedRegexes ?? true,
       isolatePandocCitations: settings.isolatePandocCitations ?? true,
-      repairLocatorClusters: settings.repairLocatorClusters ?? true
+      repairLocatorClusters: settings.repairLocatorClusters ?? true,
+      sentenceOnly: false
     })
   );
 }
