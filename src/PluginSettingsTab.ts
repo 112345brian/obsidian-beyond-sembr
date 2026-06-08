@@ -6,6 +6,9 @@ import {
 import { convertAsyncToSync } from 'obsidian-dev-utils/async';
 
 import type { Plugin } from './Plugin.ts';
+import type { AutoApplyMode } from './PluginSettings.ts';
+
+import { MIN_IDLE_TIMEOUT_SECONDS } from './PluginSettings.ts';
 
 const TEXTAREA_ROWS = 5;
 
@@ -20,6 +23,44 @@ export class PluginSettingsTab extends PluginSettingTab {
   public override display(): void {
     const { containerEl } = this;
     containerEl.empty();
+
+    // ── Auto-apply ─────────────────────────────────────────────────────────
+
+    new Setting(containerEl)
+      .setName('Auto-apply')
+      .setDesc('Automatically apply semantic line breaks without running the command manually.')
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption('off', 'Off — manual command only')
+          .addOption('on-save', 'On save')
+          .addOption('on-idle', 'After idle')
+          .setValue(this.plugin.settings.autoApply)
+          .onChange(convertAsyncToSync(async (value: string) => {
+            if (!isAutoApplyMode(value)) {
+              return;
+            }
+            this.plugin.settings.autoApply = value;
+            await this.plugin.saveSettings();
+          }));
+      });
+
+    // ── Idle timeout ───────────────────────────────────────────────────────
+
+    new Setting(containerEl)
+      .setName('Idle timeout (seconds)')
+      .setDesc('When "after idle" is selected, apply sembr after this many seconds of not typing.')
+      .addText((text) => {
+        text
+          .setValue(String(this.plugin.settings.idleTimeoutSeconds))
+          .onChange(convertAsyncToSync(async (value: string) => {
+            const parsed = Number.parseFloat(value);
+            if (!Number.isFinite(parsed) || parsed < MIN_IDLE_TIMEOUT_SECONDS) {
+              return;
+            }
+            this.plugin.settings.idleTimeoutSeconds = parsed;
+            await this.plugin.saveSettings();
+          }));
+      });
 
     // ── Excluded folders ───────────────────────────────────────────────────
 
@@ -78,6 +119,10 @@ export class PluginSettingsTab extends PluginSettingTab {
         text.inputEl.addClass('sembr-settings-textarea');
       });
   }
+}
+
+function isAutoApplyMode(value: string): value is AutoApplyMode {
+  return value === 'off' || value === 'on-save' || value === 'on-idle';
 }
 
 function splitLines(value: string): string[] {

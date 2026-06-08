@@ -1,9 +1,14 @@
 import type {
   Editor,
-  TFile
+  MarkdownFileInfo,
+  TAbstractFile
 } from 'obsidian';
 
-import { Plugin as ObsidianPlugin } from 'obsidian';
+import {
+  MarkdownView,
+  Plugin as ObsidianPlugin,
+  TFile
+} from 'obsidian';
 
 import type { PluginSettings } from './PluginSettings.ts';
 
@@ -44,6 +49,7 @@ const CODE_PLACEHOLDER_REGEX = /SEMBR_CODE_(?<idx>\d+)/gu;
 const SEMBR_OFF_PLACEHOLDER_REGEX = /SEMBR_OFF_(?<idx>\d+)/gu;
 const FRONTMATTER_RULE_SEPARATOR = ': ';
 const SEMBR_MIN_LINE_LENGTH = 25;
+const MS_PER_SECOND = 1000;
 
 // ── Frontmatter sembr override values ────────────────────────────────────────
 
@@ -54,11 +60,13 @@ const SEMBR_FRONTMATTER_FORCE = 'force';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ParagraphSemBrState = 'add' | 'remove' | 'skip';
+type SemBrTransformMode = 'add' | 'toggle';
 
 // ── Plugin ────────────────────────────────────────────────────────────────────
 
 export class Plugin extends ObsidianPlugin {
   public override settings: PluginSettings = new DefaultSettings();
+  private idleTimer: null | number = null;
 
   public override async onload(): Promise<void> {
     await this.loadSettings();
@@ -77,10 +85,35 @@ export class Plugin extends ObsidianPlugin {
       id: 'wrap-sembr-off',
       name: 'Wrap selection with sembr-off block'
     });
+    this.setupAutoApply();
+  }
+
+  public override onunload(): void {
+    if (this.idleTimer !== null) {
+      window.clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
   }
 
   public async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  private applyAddSemBr(editor: Editor, file: TFile): void {
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? null;
+    const override = this.getSemBrFrontmatterOverride(frontmatter);
+    if (override === 'false') {
+      return;
+    }
+    if (override !== 'force' && this.isNoteExcluded(file, frontmatter)) {
+      return;
+    }
+    const oldContent = editor.getValue();
+    const newContent = transformNoteContent(oldContent, 'add');
+    if (newContent === oldContent) {
+      return;
+    }
+    editor.setValue(newContent);
   }
 
   private getSemBrFrontmatterOverride(frontmatter: null | Record<string, unknown>): 'false' | 'force' | null {
@@ -134,6 +167,45 @@ export class Plugin extends ObsidianPlugin {
     this.settings = Object.assign(new DefaultSettings(), await this.loadData() as Partial<PluginSettings>);
   }
 
+  private setupAutoApply(): void {
+    // On-save: fires whenever Obsidian writes the active file to disk.
+    this.registerEvent(
+      this.app.vault.on('modify', (abstractFile: TAbstractFile) => {
+        if (this.settings.autoApply !== 'on-save') {
+          return;
+        }
+        if (!(abstractFile instanceof TFile)) {
+          return;
+        }
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view?.file !== abstractFile) {
+          return;
+        }
+        this.applyAddSemBr(view.editor, abstractFile);
+      })
+    );
+
+    // On-idle: debounced — fires after the user stops typing for the configured duration.
+    this.registerEvent(
+      this.app.workspace.on('editor-change', (editor: Editor, info: MarkdownFileInfo) => {
+        if (this.settings.autoApply !== 'on-idle') {
+          return;
+        }
+        if (this.idleTimer !== null) {
+          window.clearTimeout(this.idleTimer);
+        }
+        const { file } = info;
+        if (!file) {
+          return;
+        }
+        this.idleTimer = window.setTimeout(() => {
+          this.idleTimer = null;
+          this.applyAddSemBr(editor, file);
+        }, this.settings.idleTimeoutSeconds * MS_PER_SECOND);
+      })
+    );
+  }
+
   private toggleSemBr(editor: Editor): void {
     const file = this.app.workspace.getActiveFile();
     if (!file) {
@@ -153,75 +225,7 @@ export class Plugin extends ObsidianPlugin {
       return;
     }
 
-    let noteContent = editor.getValue().replace(TRAILING_NEWLINES_REGEX, '');
-
-    // Extract YAML frontmatter.
-    const yamlHeader = YAML_HEADER_REGEX.exec(noteContent);
-    if (yamlHeader) {
-      noteContent = noteContent.replace(yamlHeader[0], '');
-    }
-
-    // Extract `<!-- sembr-off --> ... <!-- sembr-on -->` blocks.
-    const sembrOffBlocks: string[] = [];
-    noteContent = noteContent.replace(SEMBR_OFF_BLOCK_REGEX, (block) => {
-      const idx = sembrOffBlocks.length;
-      sembrOffBlocks.push(block);
-      return `SEMBR_OFF_${String(idx)}`;
-    });
-
-    // Split out fenced code blocks so they are never touched.
-    const hasCodeBlocks = noteContent.includes(CODE_BLOCK_DELIMITER);
-    const codeBlocks: string[] = [];
-    let proseParts: string[] = [];
-
-    if (hasCodeBlocks) {
-      let i = 0;
-      for (const part of noteContent.split(CODE_BLOCK_DELIMITER)) {
-        if (i % CODE_BLOCK_MODULO === 0) {
-          proseParts.push(part);
-        } else {
-          codeBlocks.push(part);
-        }
-        i++;
-      }
-    } else {
-      proseParts.push(noteContent);
-    }
-
-    // Toggle per-paragraph — each paragraph decides its own direction.
-    proseParts = proseParts.map((prose) => {
-      const paragraphs = prose.split(PARAGRAPH_SPLIT_REGEX);
-      const toggled = paragraphs.map((paragraph) => toggleSemBrInParagraph(paragraph));
-      const result = toggled.join('\n\n');
-      return result.replace(FOOTNOTE_REGEX, (footnote) => removeSemBr(footnote));
-    });
-
-    // Reassemble code blocks.
-    if (hasCodeBlocks) {
-      const parts: string[] = [];
-      for (let i = 0; i < proseParts.length; i++) {
-        parts.push(proseParts[i] ?? '');
-        const codeBlock = codeBlocks[i];
-        if (codeBlock !== undefined) {
-          parts.push(codeBlock);
-        }
-      }
-      noteContent = parts.join(CODE_BLOCK_DELIMITER);
-    } else {
-      noteContent = proseParts[0] ?? '';
-    }
-
-    // Restore sembr-off blocks.
-    noteContent = noteContent.replace(
-      SEMBR_OFF_PLACEHOLDER_REGEX,
-      (_match: string, idx: string) => sembrOffBlocks[Number(idx)] ?? ''
-    );
-
-    if (yamlHeader) {
-      noteContent = yamlHeader[0] + noteContent;
-    }
-
-    editor.setValue(`${noteContent}\n`);
+    editor.setValue(transformNoteContent(editor.getValue(), 'toggle'));
   }
 }
 
@@ -317,15 +321,87 @@ function removeSemBr(str: string): string {
   return str.replace(SEMBR_REMOVE_REGEX, '$<punc> ');
 }
 
-function toggleSemBrInParagraph(paragraph: string): string {
-  switch (getParagraphState(paragraph)) {
-    case 'add':
-      return addSemBrToParagraph(paragraph);
-    case 'remove':
-      return removeSemBr(paragraph);
-    default:
-      return paragraph;
+function transformNoteContent(rawContent: string, mode: SemBrTransformMode): string {
+  let noteContent = rawContent.replace(TRAILING_NEWLINES_REGEX, '');
+
+  // Extract YAML frontmatter.
+  const yamlHeader = YAML_HEADER_REGEX.exec(noteContent);
+  if (yamlHeader) {
+    noteContent = noteContent.replace(yamlHeader[0], '');
   }
+
+  // Extract `<!-- sembr-off --> ... <!-- sembr-on -->` blocks.
+  const sembrOffBlocks: string[] = [];
+  noteContent = noteContent.replace(SEMBR_OFF_BLOCK_REGEX, (block) => {
+    const idx = sembrOffBlocks.length;
+    sembrOffBlocks.push(block);
+    return `SEMBR_OFF_${String(idx)}`;
+  });
+
+  // Split out fenced code blocks so they are never touched.
+  const hasCodeBlocks = noteContent.includes(CODE_BLOCK_DELIMITER);
+  const codeBlocks: string[] = [];
+  let proseParts: string[] = [];
+
+  if (hasCodeBlocks) {
+    let i = 0;
+    for (const part of noteContent.split(CODE_BLOCK_DELIMITER)) {
+      if (i % CODE_BLOCK_MODULO === 0) {
+        proseParts.push(part);
+      } else {
+        codeBlocks.push(part);
+      }
+      i++;
+    }
+  } else {
+    proseParts.push(noteContent);
+  }
+
+  // Transform per-paragraph — each paragraph decides its own direction.
+  proseParts = proseParts.map((prose) => {
+    const paragraphs = prose.split(PARAGRAPH_SPLIT_REGEX);
+    const transformed = paragraphs.map((paragraph) => transformParagraph(paragraph, mode));
+    const result = transformed.join('\n\n');
+    return result.replace(FOOTNOTE_REGEX, (footnote) => removeSemBr(footnote));
+  });
+
+  // Reassemble code blocks.
+  if (hasCodeBlocks) {
+    const parts: string[] = [];
+    for (let i = 0; i < proseParts.length; i++) {
+      parts.push(proseParts[i] ?? '');
+      const codeBlock = codeBlocks[i];
+      if (codeBlock !== undefined) {
+        parts.push(codeBlock);
+      }
+    }
+    noteContent = parts.join(CODE_BLOCK_DELIMITER);
+  } else {
+    noteContent = proseParts[0] ?? '';
+  }
+
+  // Restore sembr-off blocks.
+  noteContent = noteContent.replace(
+    SEMBR_OFF_PLACEHOLDER_REGEX,
+    (_match: string, idx: string) => sembrOffBlocks[Number(idx)] ?? ''
+  );
+
+  if (yamlHeader) {
+    noteContent = yamlHeader[0] + noteContent;
+  }
+
+  return `${noteContent}\n`;
+}
+
+function transformParagraph(paragraph: string, mode: SemBrTransformMode): string {
+  const state = getParagraphState(paragraph);
+  if (state === 'skip') {
+    return paragraph;
+  }
+  if (state === 'remove') {
+    return mode === 'toggle' ? removeSemBr(paragraph) : paragraph;
+  }
+  return addSemBrToParagraph(paragraph);
 }
 
 function wrapSelectionWithSemBrOff(editor: Editor): void {
