@@ -45,11 +45,14 @@ class SemBrLineBreakMarkerWidget extends WidgetType {
   }
 
   public override toDOM(view: EditorView): HTMLElement {
-    const span = view.dom.ownerDocument.createElement('span');
-    span.addClass('sembr-live-preview-break-marker');
-    span.ariaHidden = 'true';
-    span.textContent = '^';
-    return span;
+    const outer = view.dom.ownerDocument.createElement('span');
+    outer.ariaHidden = 'true';
+    outer.appendChild(view.dom.ownerDocument.createTextNode(' '));
+    const marker = view.dom.ownerDocument.createElement('span');
+    marker.addClass('sembr-live-preview-break-marker');
+    marker.textContent = '^';
+    outer.appendChild(marker);
+    return outer;
   }
 }
 
@@ -270,7 +273,7 @@ function buildSemBrLineBreakMarkers(view: EditorView): DecorationSet {
     for (let pos = range.from; pos <= range.to;) {
       const line = doc.lineAt(pos);
       if (line.number !== lastLineNumber && shouldMarkSemBrLineBreak(line.text, line.number, doc)) {
-        builder.add(line.to, line.to, semBrLineBreakMarkerDecoration);
+        builder.add(line.to, line.to + 1, semBrLineBreakMarkerDecoration);
         lastLineNumber = line.number;
       }
       if (line.to >= doc.length) {
@@ -298,8 +301,7 @@ function normalizeStringList(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
 }
 
-const semBrLineBreakMarkerDecoration = Decoration.widget({
-  side: 1,
+const semBrLineBreakMarkerDecoration = Decoration.replace({
   widget: new SemBrLineBreakMarkerWidget()
 });
 
