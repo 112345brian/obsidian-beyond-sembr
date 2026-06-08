@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `…` (U+2026) as a first-class clause terminator: Unicode ellipses now trigger breaks and are handled correctly by toggle mode and live preview markers
+- Sentence-ending periods followed by `[[wikilinks]]` or other `[bracket` references now break correctly before the link instead of attaching it to the preceding clause
+- Remove trailing spaces from SemBr-broken lines
 - Rename plugin and package from Semantic Line Breaker / `obsidian-sembr` to Beyond SemBr / `obsidian-beyond-sembr`
 - Rename Obsidian plugin id to `beyond-sembr`
 - Treat page/location locator clusters such as `Pg. 193 A51/B75` as indivisible citation metadata and repair already-broken locator splits

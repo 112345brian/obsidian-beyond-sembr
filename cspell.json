@@ -22,7 +22,9 @@
     "pandoc",
     "punc",
     "sembr",
-    "tsbuildinfo"
+    "tsbuildinfo",
+    "wikilink",
+    "wikilinks"
   ],
   "ignoreWords": [],
   "import": [],
