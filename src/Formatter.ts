@@ -71,6 +71,9 @@ export function shouldCollapseNewline(lineText: string, lineNumber: number, doc:
   if (lineNumber >= doc.lines) {
     return false;
   }
+  if (lineText === '') {
+    return false;
+  }
   if (isNonProseLine(lineText)) {
     return false;
   }

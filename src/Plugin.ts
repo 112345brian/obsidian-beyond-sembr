@@ -8,6 +8,7 @@ import type {
 
 import {
   EditorState,
+  Facet,
   RangeSetBuilder,
   StateField
 } from '@codemirror/state';
@@ -17,6 +18,7 @@ import {
   WidgetType
 } from '@codemirror/view';
 import {
+  editorInfoField,
   editorLivePreviewField,
   MarkdownView,
   Plugin as ObsidianPlugin,
@@ -75,19 +77,6 @@ export class Plugin extends ObsidianPlugin {
   public override settings: PluginSettingsData = new PluginSettings();
   private readonly editorExtensions: Extension[] = [];
   private idleTimer: null | number = null;
-  private semBrStateField: null | StateField<DecorationSet> = null;
-
-  public isFileEnabledForSemBr(file: TFile): boolean {
-    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? null;
-    const override = this.getSemBrFrontmatterOverride(frontmatter);
-    if (override === 'false') {
-      return false;
-    }
-    if (override !== 'force' && this.isNoteExcluded(file, frontmatter)) {
-      return false;
-    }
-    return true;
-  }
 
   public override async onload(): Promise<void> {
     await this.loadSettings();
@@ -119,7 +108,6 @@ export class Plugin extends ObsidianPlugin {
   }
 
   public refreshEditorExtensions(): void {
-    this.semBrStateField = null;
     this.editorExtensions.splice(0, this.editorExtensions.length, ...this.getEditorExtensions());
     this.app.workspace.updateOptions();
   }
@@ -149,8 +137,10 @@ export class Plugin extends ObsidianPlugin {
     if (!this.settings.showLivePreviewLineBreakMarkers) {
       return [];
     }
-    this.semBrStateField ??= createSemBrStateField(this);
-    return [this.semBrStateField];
+    return [
+      semBrExclusionFacet.of((file) => this.isFileEnabledForSemBr(file)),
+      semBrLineBreakMarkerStateField
+    ];
   }
 
   private getSemBrFrontmatterOverride(frontmatter: null | Record<string, unknown>): 'false' | 'force' | null {
@@ -169,6 +159,18 @@ export class Plugin extends ObsidianPlugin {
 
   private getTransformOptions(): ReturnType<typeof createTransformNoteContentOptions> {
     return createTransformNoteContentOptions(this.settings);
+  }
+
+  private isFileEnabledForSemBr(file: TFile): boolean {
+    const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? null;
+    const override = this.getSemBrFrontmatterOverride(frontmatter);
+    if (override === 'false') {
+      return false;
+    }
+    if (override !== 'force' && this.isNoteExcluded(file, frontmatter)) {
+      return false;
+    }
+    return true;
   }
 
   private isNoteExcluded(file: TFile, frontmatter: null | Record<string, unknown>): boolean {
@@ -289,15 +291,23 @@ export class Plugin extends ObsidianPlugin {
   }
 }
 
-function buildSemBrDecorations(state: EditorState, plugin: Plugin): DecorationSet {
+const semBrExclusionFacet = Facet.define<(file: TFile) => boolean, ((file: TFile) => boolean) | null>({
+  combine: (checkers) => checkers[0] ?? null
+});
+
+function buildSemBrDecorations(state: EditorState): DecorationSet {
   // @ts-expect-error Obsidian's StateField type is nominally distinct from the direct CodeMirror import.
   if (!state.field(editorLivePreviewField, false)) {
     return Decoration.none;
   }
 
-  const activeFile = plugin.app.workspace.getActiveFile();
-  if (activeFile && !plugin.isFileEnabledForSemBr(activeFile)) {
-    return Decoration.none;
+  const isFileEnabled = state.facet(semBrExclusionFacet);
+  if (isFileEnabled !== null) {
+    // @ts-expect-error Obsidian's StateField type is nominally distinct from the direct CodeMirror import.
+    const file = (state.field(editorInfoField, false))?.file ?? null;
+    if (file !== null && !isFileEnabled(file)) {
+      return Decoration.none;
+    }
   }
 
   const builder = new RangeSetBuilder<Decoration>();
@@ -315,13 +325,11 @@ function buildSemBrDecorations(state: EditorState, plugin: Plugin): DecorationSe
   return builder.finish();
 }
 
-function createSemBrStateField(plugin: Plugin): StateField<DecorationSet> {
-  return StateField.define<DecorationSet>({
-    create: (state) => buildSemBrDecorations(state, plugin),
-    provide: (f) => EditorView.decorations.from(f),
-    update: (decorations, tr) => tr.docChanged ? buildSemBrDecorations(tr.state, plugin) : decorations.map(tr.changes)
-  });
-}
+const semBrLineBreakMarkerStateField = StateField.define<DecorationSet>({
+  create: (state) => buildSemBrDecorations(state),
+  provide: (f) => EditorView.decorations.from(f),
+  update: (decorations, tr) => (tr.docChanged || tr.reconfigured) ? buildSemBrDecorations(tr.state) : decorations.map(tr.changes)
+});
 
 function isAutoApplyMode(value: unknown): value is PluginSettingsData['autoApply'] {
   return value === 'off' || value === 'on-save' || value === 'on-idle';
