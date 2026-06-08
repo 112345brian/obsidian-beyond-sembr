@@ -49,14 +49,11 @@ class SemBrLineBreakMarkerWidget extends WidgetType {
   }
 
   public override toDOM(view: EditorView): HTMLElement {
-    const outer = view.dom.ownerDocument.createElement('span');
-    outer.ariaHidden = 'true';
-    outer.appendChild(view.dom.ownerDocument.createTextNode(' '));
-    const marker = view.dom.ownerDocument.createElement('span');
-    marker.addClass('sembr-live-preview-break-marker');
-    marker.textContent = '^';
-    outer.appendChild(marker);
-    return outer;
+    const span = view.dom.ownerDocument.createElement('span');
+    span.addClass('sembr-live-preview-break-marker');
+    span.ariaHidden = 'true';
+    span.textContent = '^';
+    return span;
   }
 }
 
