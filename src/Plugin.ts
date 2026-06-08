@@ -27,6 +27,7 @@ import type { PluginSettings as PluginSettingsData } from './PluginSettings.ts';
 
 import {
   createTransformNoteContentOptions,
+  shouldCollapseNewline,
   shouldMarkSemBrLineBreak,
   transformNoteContent
 } from './Formatter.ts';
@@ -53,6 +54,19 @@ class SemBrLineBreakMarkerWidget extends WidgetType {
     span.addClass('sembr-live-preview-break-marker');
     span.ariaHidden = 'true';
     span.textContent = '^';
+    return span;
+  }
+}
+
+class SemBrSpaceWidget extends WidgetType {
+  public override eq(widget: WidgetType): boolean {
+    return widget instanceof SemBrSpaceWidget;
+  }
+
+  public override toDOM(view: EditorView): HTMLElement {
+    const span = view.dom.ownerDocument.createElement('span');
+    span.ariaHidden = 'true';
+    span.textContent = ' ';
     return span;
   }
 }
@@ -273,6 +287,8 @@ function buildSemBrDecorations(state: EditorState): DecorationSet {
     const line = doc.line(lineNum);
     if (shouldMarkSemBrLineBreak(line.text, lineNum, doc)) {
       builder.add(line.to, line.to + 1, semBrLineBreakMarkerDecoration);
+    } else if (shouldCollapseNewline(line.text, lineNum, doc)) {
+      builder.add(line.to, line.to + 1, semBrSpaceDecoration);
     }
   }
 
@@ -293,6 +309,10 @@ function normalizeStringList(value: unknown): string[] {
   }
   return value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
 }
+
+const semBrSpaceDecoration = Decoration.replace({
+  widget: new SemBrSpaceWidget()
+});
 
 const semBrLineBreakMarkerDecoration = Decoration.replace({
   widget: new SemBrLineBreakMarkerWidget()

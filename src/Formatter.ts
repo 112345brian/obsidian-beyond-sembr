@@ -66,6 +66,20 @@ export function createTransformNoteContentOptions(settings: SemBrTransformSettin
   };
 }
 
+export function shouldCollapseNewline(lineText: string, lineNumber: number, doc: Text): boolean {
+  if (lineNumber >= doc.lines) {
+    return false;
+  }
+  if (isNonProseLine(lineText)) {
+    return false;
+  }
+  const nextLineText = doc.line(lineNumber + 1).text;
+  if (nextLineText === '') {
+    return false;
+  }
+  return !isNonProseLine(nextLineText);
+}
+
 export function shouldMarkSemBrLineBreak(lineText: string, lineNumber: number, doc: Text): boolean {
   if (lineNumber >= doc.lines) {
     return false;
