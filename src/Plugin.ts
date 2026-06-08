@@ -12,7 +12,11 @@ import {
 
 import type { PluginSettings } from './PluginSettings.ts';
 
-import { PluginSettings as DefaultSettings } from './PluginSettings.ts';
+import {
+  DEFAULT_IDLE_TIMEOUT_SECONDS,
+  MIN_IDLE_TIMEOUT_SECONDS,
+  PluginSettings as DefaultSettings
+} from './PluginSettings.ts';
 import { PluginSettingsTab } from './PluginSettingsTab.ts';
 
 // ── Block-type detectors ──────────────────────────────────────────────────────
@@ -25,7 +29,7 @@ const HORIZONTAL_RULE_REGEX = /^(?:---|\*\*\*|___)\s*$/u;
 // ── SemBr regexes ─────────────────────────────────────────────────────────────
 
 const SEMBR_REMOVE_REGEX = /(?<punc>[.,:;?!—]) ?\n(?!\n)/gmu;
-const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.]{25,}?[^:][.,:;?!—](?: ?\[.+\])?(?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.]{25,})/gmu;
+const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.,:;?!—](?: ?\[.+\])?(?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
 const FOOTNOTE_REGEX = /\n\[\^.*?(?=\[\n\^|\n\n|$)/gsu;
 
 // A line is sembr'd if it ends in punctuation — used for per-paragraph state detection.
@@ -153,7 +157,11 @@ export class Plugin extends ObsidianPlugin {
         } else {
           const key = rule.slice(0, separatorIndex).trim();
           const ruleValue = rule.slice(separatorIndex + FRONTMATTER_RULE_SEPARATOR.length).trim();
-          if (frontmatter[key] === ruleValue) {
+          const rawVal = frontmatter[key];
+          if (
+            (typeof rawVal === 'string' || typeof rawVal === 'number' || typeof rawVal === 'boolean')
+            && String(rawVal) === ruleValue
+          ) {
             return true;
           }
         }
@@ -165,6 +173,9 @@ export class Plugin extends ObsidianPlugin {
 
   private async loadSettings(): Promise<void> {
     this.settings = Object.assign(new DefaultSettings(), await this.loadData() as Partial<PluginSettings>);
+    if (!Number.isFinite(this.settings.idleTimeoutSeconds) || this.settings.idleTimeoutSeconds < MIN_IDLE_TIMEOUT_SECONDS) {
+      this.settings.idleTimeoutSeconds = DEFAULT_IDLE_TIMEOUT_SECONDS;
+    }
   }
 
   private setupAutoApply(): void {
@@ -200,6 +211,12 @@ export class Plugin extends ObsidianPlugin {
         }
         this.idleTimer = window.setTimeout(() => {
           this.idleTimer = null;
+          if (this.settings.autoApply !== 'on-idle') {
+            return;
+          }
+          if (this.app.workspace.getActiveFile() !== file) {
+            return;
+          }
           this.applyAddSemBr(editor, file);
         }, this.settings.idleTimeoutSeconds * MS_PER_SECOND);
       })
@@ -294,7 +311,8 @@ function getParagraphState(paragraph: string): ParagraphSemBrState {
   }
 
   // Lines shorter than the minimum suggest poetry, verse, or short-form content — skip.
-  const hasShortLines = lines.some((line) => line.length < SEMBR_MIN_LINE_LENGTH);
+  // Exclude the terminal line: it is almost always short and would cause false positives.
+  const hasShortLines = lines.slice(0, -1).some((line) => line.length < SEMBR_MIN_LINE_LENGTH);
   if (hasShortLines) {
     return 'skip';
   }
@@ -330,14 +348,6 @@ function transformNoteContent(rawContent: string, mode: SemBrTransformMode): str
     noteContent = noteContent.replace(yamlHeader[0], '');
   }
 
-  // Extract `<!-- sembr-off --> ... <!-- sembr-on -->` blocks.
-  const sembrOffBlocks: string[] = [];
-  noteContent = noteContent.replace(SEMBR_OFF_BLOCK_REGEX, (block) => {
-    const idx = sembrOffBlocks.length;
-    sembrOffBlocks.push(block);
-    return `SEMBR_OFF_${String(idx)}`;
-  });
-
   // Split out fenced code blocks so they are never touched.
   const hasCodeBlocks = noteContent.includes(CODE_BLOCK_DELIMITER);
   const codeBlocks: string[] = [];
@@ -357,12 +367,25 @@ function transformNoteContent(rawContent: string, mode: SemBrTransformMode): str
     proseParts.push(noteContent);
   }
 
+  // Extract `<!-- sembr-off --> ... <!-- sembr-on -->` blocks from prose parts only.
+  // Must run after code splitting so directives inside code blocks are ignored.
+  const sembrOffBlocks: string[] = [];
+  proseParts = proseParts.map((prose) => {
+    return prose.replace(SEMBR_OFF_BLOCK_REGEX, (block) => {
+      const idx = sembrOffBlocks.length;
+      sembrOffBlocks.push(block);
+      return `SEMBR_OFF_${String(idx)}`;
+    });
+  });
+
   // Transform per-paragraph — each paragraph decides its own direction.
   proseParts = proseParts.map((prose) => {
     const paragraphs = prose.split(PARAGRAPH_SPLIT_REGEX);
     const transformed = paragraphs.map((paragraph) => transformParagraph(paragraph, mode));
     const result = transformed.join('\n\n');
-    return result.replace(FOOTNOTE_REGEX, (footnote) => removeSemBr(footnote));
+    return result.replace(FOOTNOTE_REGEX, (footnote) => {
+      return mode === 'toggle' ? removeSemBr(footnote) : footnote;
+    });
   });
 
   // Reassemble code blocks.
