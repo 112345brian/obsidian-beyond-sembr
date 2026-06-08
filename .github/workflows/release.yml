@@ -6,7 +6,7 @@ on:
       - "*"
 
 env:
-  PLUGIN_NAME: obsidian-sembr # Change this to match the id of your plugin.
+  PLUGIN_NAME: beyond-sembr # Change this to match the id of your plugin.
 
 jobs:
   build:

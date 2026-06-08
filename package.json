@@ -1,12 +1,13 @@
 {
-  "name": "obsidian-sembr",
+  "name": "obsidian-beyond-sembr",
   "version": "0.9.0",
-  "description": "Apply and remove Semantic Line Breaks (SemBr).",
+  "description": "Diff-oriented Markdown normalization beyond Semantic Line Breaks.",
   "keywords": [
     "obsidian",
-    "obsidian-plugin",
     "semantic-line-breaks",
-    "sembr"
+    "sembr",
+    "markdown-normalization",
+    "pandoc"
   ],
   "license": "MIT",
   "author": "112345brian",
@@ -41,6 +42,8 @@
     "type-fest": "latest"
   },
   "dependencies": {
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.38.6",
     "@commitlint/types": "^21.0.1",
     "obsidian-integration-testing": "^4.2.3"
   }

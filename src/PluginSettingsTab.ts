@@ -62,6 +62,48 @@ export class PluginSettingsTab extends PluginSettingTab {
           }));
       });
 
+    // ── Pandoc citations ──────────────────────────────────────────────────
+
+    new Setting(containerEl)
+      .setName('Isolate pandoc citations')
+      .setDesc('Put sentence-final bracketed pandoc citations on their own line for cleaner diffs.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.isolatePandocCitations)
+          .onChange(convertAsyncToSync(async (value: boolean) => {
+            this.plugin.settings.isolatePandocCitations = value;
+            await this.plugin.saveSettings();
+          }));
+      });
+
+    new Setting(containerEl)
+      .setName('Show line break markers')
+      .setDesc('Show subtle markers for semantic line breaks in live preview.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.showLivePreviewLineBreakMarkers)
+          .onChange(convertAsyncToSync(async (value: boolean) => {
+            this.plugin.settings.showLivePreviewLineBreakMarkers = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshEditorExtensions();
+          }));
+      });
+
+    new Setting(containerEl)
+      .setName('Custom protected regexes')
+      .setDesc('Protect custom spans from line breaks. One JavaScript regex per line, as source or /source/flags.')
+      .addTextArea((text) => {
+        text
+          .setPlaceholder('ISBN\\s+\\d[\\d-]+\\n/[A-Z]{2}\\d+\\/B\\d+/u')
+          .setValue(this.plugin.settings.customProtectedRegexes.join('\n'))
+          .onChange(convertAsyncToSync(async (value: string) => {
+            this.plugin.settings.customProtectedRegexes = splitLines(value);
+            await this.plugin.saveSettings();
+          }));
+        text.inputEl.rows = TEXTAREA_ROWS;
+        text.inputEl.addClass('sembr-settings-textarea');
+      });
+
     // ── Excluded folders ───────────────────────────────────────────────────
 
     new Setting(containerEl)

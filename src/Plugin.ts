@@ -1,21 +1,33 @@
 import type {
+  Extension,
+  Text
+} from '@codemirror/state';
+import type { DecorationSet } from '@codemirror/view';
+import type {
   Editor,
   MarkdownFileInfo,
   TAbstractFile
 } from 'obsidian';
 
+import { RangeSetBuilder } from '@codemirror/state';
 import {
+  Decoration,
+  EditorView,
+  WidgetType
+} from '@codemirror/view';
+import {
+  editorLivePreviewField,
   MarkdownView,
   Plugin as ObsidianPlugin,
   TFile
 } from 'obsidian';
 
-import type { PluginSettings } from './PluginSettings.ts';
+import type { PluginSettings as PluginSettingsData } from './PluginSettings.ts';
 
 import {
   DEFAULT_IDLE_TIMEOUT_SECONDS,
   MIN_IDLE_TIMEOUT_SECONDS,
-  PluginSettings as DefaultSettings
+  PluginSettings
 } from './PluginSettings.ts';
 import { PluginSettingsTab } from './PluginSettingsTab.ts';
 
@@ -30,6 +42,7 @@ const HORIZONTAL_RULE_REGEX = /^(?:---|\*\*\*|___)\s*$/u;
 
 const SEMBR_REMOVE_REGEX = /(?<punc>[.,:;?!—]) ?\n(?!\n)/gmu;
 const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.,:;?!—](?: ?\[.+\])?(?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
+const ET_AL_REGEX = /\bet al\. $/u;
 const FOOTNOTE_REGEX = /\n\[\^.*?(?=\[\n\^|\n\n|$)/gsu;
 
 // A line is sembr'd if it ends in punctuation — used for per-paragraph state detection.
@@ -39,18 +52,30 @@ const SEMBR_LINE_REGEX = /[.,:;?!—] ?$/u;
 
 const URL_REGEX = /https?:\/\/\S+/gu;
 const INLINE_CODE_REGEX = /`[^`\n]+`/gu;
+const BRACKETED_PANDOC_CITATION_REGEX = /\[[^\]\n]*@[^\]\n]*\]/gu;
+const PANDOC_CITATION_REGEX = /-?@[\p{Letter}\p{Number}_:.#$%&\-+?<>~/]+|\[[^\]\n]*@[^\]\n]*\]/gu;
+const LOCATOR_CLUSTER_REGEX =
+  /(?<![\p{Letter}\p{Number}_])(?:(?:p|pp|Pg|ch|para)\. ?\d+(?:[-–]\d+)?(?:\s+[A-Z]\d+(?:\/[A-Z]?\d+|[-–][A-Z]?\d+)?)?|§ ?\d+|[A-Z]\d+(?:\/[A-Z]?\d+|[-–][A-Z]?\d+))(?![\p{Letter}\p{Number}_])/gu;
 const SEMBR_OFF_BLOCK_REGEX = /<!--\s*sembr-off\s*-->.*?<!--\s*sembr-on\s*-->/gsu;
 
 // ── Structural ────────────────────────────────────────────────────────────────
 
-const YAML_HEADER_REGEX = /^---\n(?<body>.*?)---\n/su;
+const YAML_HEADER_REGEX = /^---\n(?<body>.*?)---\n+/su;
 const PARAGRAPH_SPLIT_REGEX = /\n{2,}/u;
 const CODE_BLOCK_DELIMITER = '```';
 const TRAILING_NEWLINES_REGEX = /\n+$/u;
 const CODE_BLOCK_MODULO = 2;
 const URL_PLACEHOLDER_REGEX = /SEMBR_URL_(?<idx>\d+)/gu;
 const CODE_PLACEHOLDER_REGEX = /SEMBR_CODE_(?<idx>\d+)/gu;
+const CITATION_PLACEHOLDER_REGEX = /SEMBR_CITATION_(?<idx>\d+)/gu;
+const CUSTOM_PLACEHOLDER_REGEX = /SEMBR_CUSTOM_(?<idx>\d+)/gu;
+const LOCATOR_PLACEHOLDER_REGEX = /SEMBR_LOCATOR_(?<idx>\d+)/gu;
 const SEMBR_OFF_PLACEHOLDER_REGEX = /SEMBR_OFF_(?<idx>\d+)/gu;
+const CITATION_LINE_BREAK_REGEX = /(?<citation>\[[^\]\n]*@[^\]\n]*\])\n(?!\n)/gu;
+const LOCATOR_CONTINUATION_LINE_REGEX =
+  /^(?:\d+(?:[-–]\d+)?\s+[A-Z]\d+(?:\/[A-Z]?\d+|[-–][A-Z]?\d+)?|[A-Z]\d+(?:\/[A-Z]?\d+|[-–][A-Z]?\d+)|§ ?\d+|ch\. ?\d+\]?)(?:\s|$)/u;
+const LOCATOR_PREFIX_LINE_END_REGEX = /\b(?:p|pp|Pg|ch|para)\.$|§$/u;
+const SENTENCE_FINAL_CITATION_REGEX = /(?<sentencePunc>[.!?])? ?(?<citation>\[[^\]\n]*@[^\]\n]*\])(?<citationPunc>[.!?])?(?= |$)/gu;
 const FRONTMATTER_RULE_SEPARATOR = ': ';
 const SEMBR_MIN_LINE_LENGTH = 25;
 const MS_PER_SECOND = 1000;
@@ -64,16 +89,43 @@ const SEMBR_FRONTMATTER_FORCE = 'force';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ParagraphSemBrState = 'add' | 'remove' | 'skip';
+interface ParsedCustomRegexLiteral {
+  readonly flags: string;
+  readonly source: string;
+}
 type SemBrTransformMode = 'add' | 'toggle';
+interface SemBrTransformOptions {
+  readonly customProtectedRegexes: readonly RegExp[];
+  readonly isolatePandocCitations: boolean;
+}
 
 // ── Plugin ────────────────────────────────────────────────────────────────────
 
+class SemBrLineBreakMarkerWidget extends WidgetType {
+  public override eq(widget: WidgetType): boolean {
+    return widget instanceof SemBrLineBreakMarkerWidget;
+  }
+
+  public override toDOM(view: EditorView): HTMLElement {
+    const span = view.dom.ownerDocument.createElement('span');
+    span.addClass('sembr-live-preview-break-marker');
+    span.ariaHidden = 'true';
+    span.textContent = '^';
+    return span;
+  }
+}
+
+// ── Helpers (alphabetical) ────────────────────────────────────────────────────
+
 export class Plugin extends ObsidianPlugin {
-  public override settings: PluginSettings = new DefaultSettings();
+  public override settings: PluginSettingsData = new PluginSettings();
+  private readonly editorExtensions: Extension[] = [];
   private idleTimer: null | number = null;
 
   public override async onload(): Promise<void> {
     await this.loadSettings();
+    this.editorExtensions.push(...this.getEditorExtensions());
+    this.registerEditorExtension(this.editorExtensions);
     this.addSettingTab(new PluginSettingsTab(this.app, this));
     this.addCommand({
       editorCallback: (editor: Editor): void => {
@@ -99,6 +151,11 @@ export class Plugin extends ObsidianPlugin {
     }
   }
 
+  public refreshEditorExtensions(): void {
+    this.editorExtensions.splice(0, this.editorExtensions.length, ...this.getEditorExtensions());
+    this.app.workspace.updateOptions();
+  }
+
   public async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
   }
@@ -113,11 +170,18 @@ export class Plugin extends ObsidianPlugin {
       return;
     }
     const oldContent = editor.getValue();
-    const newContent = transformNoteContent(oldContent, 'add');
+    const newContent = transformNoteContent(oldContent, 'add', this.getTransformOptions());
     if (newContent === oldContent) {
       return;
     }
     editor.setValue(newContent);
+  }
+
+  private getEditorExtensions(): Extension[] {
+    if (!this.settings.showLivePreviewLineBreakMarkers) {
+      return [];
+    }
+    return [semBrLineBreakMarkerExtension];
   }
 
   private getSemBrFrontmatterOverride(frontmatter: null | Record<string, unknown>): 'false' | 'force' | null {
@@ -133,6 +197,13 @@ export class Plugin extends ObsidianPlugin {
       return 'force';
     }
     return null;
+  }
+
+  private getTransformOptions(): SemBrTransformOptions {
+    return {
+      customProtectedRegexes: compileCustomProtectedRegexes(this.settings.customProtectedRegexes),
+      isolatePandocCitations: this.settings.isolatePandocCitations
+    };
   }
 
   private isNoteExcluded(file: TFile, frontmatter: null | Record<string, unknown>): boolean {
@@ -172,7 +243,7 @@ export class Plugin extends ObsidianPlugin {
   }
 
   private async loadSettings(): Promise<void> {
-    this.settings = Object.assign(new DefaultSettings(), await this.loadData() as Partial<PluginSettings>);
+    this.settings = Object.assign(new PluginSettings(), await this.loadData() as Partial<PluginSettingsData>);
     if (!Number.isFinite(this.settings.idleTimeoutSeconds) || this.settings.idleTimeoutSeconds < MIN_IDLE_TIMEOUT_SECONDS) {
       this.settings.idleTimeoutSeconds = DEFAULT_IDLE_TIMEOUT_SECONDS;
     }
@@ -242,17 +313,32 @@ export class Plugin extends ObsidianPlugin {
       return;
     }
 
-    editor.setValue(transformNoteContent(editor.getValue(), 'toggle'));
+    editor.setValue(transformNoteContent(editor.getValue(), 'toggle', this.getTransformOptions()));
   }
 }
 
-// ── Helpers (alphabetical) ────────────────────────────────────────────────────
+function addGlobalRegexFlag(flags: string): string {
+  return Array.from(new Set(`${flags}g`)).join('');
+}
 
-function addSemBrToParagraph(paragraph: string): string {
+function addSemBrToParagraph(paragraph: string, options: SemBrTransformOptions): string {
+  const customMatches: string[] = [];
   const urls: string[] = [];
   const codespans: string[] = [];
+  const citations: string[] = [];
+  const locators: string[] = [];
 
-  let text = paragraph.replace(URL_REGEX, (url) => {
+  let text = paragraph;
+
+  for (const customRegex of options.customProtectedRegexes) {
+    text = text.replace(customRegex, (match: string) => {
+      const idx = customMatches.length;
+      customMatches.push(match);
+      return `SEMBR_CUSTOM_${String(idx)}`;
+    });
+  }
+
+  text = text.replace(URL_REGEX, (url) => {
     const idx = urls.length;
     urls.push(url);
     return `SEMBR_URL_${String(idx)}`;
@@ -264,11 +350,26 @@ function addSemBrToParagraph(paragraph: string): string {
     return `SEMBR_CODE_${String(idx)}`;
   });
 
+  text = text.replace(PANDOC_CITATION_REGEX, (citation) => {
+    const idx = citations.length;
+    citations.push(citation);
+    return `SEMBR_CITATION_${String(idx)}`;
+  });
+
+  text = text.replace(LOCATOR_CLUSTER_REGEX, (locator) => {
+    const idx = locators.length;
+    locators.push(locator);
+    return `SEMBR_LOCATOR_${String(idx)}`;
+  });
+
   text = text.replace(
     SEMBR_CLAUSE_REGEX,
     (fullMatch: string, clause: string, _trailingSpace: string, offset: number, fullString: string): string => {
       const charAfterMatch = fullString[offset + fullMatch.length];
       const lastPunc = clause.trimEnd().at(-1);
+      if (ET_AL_REGEX.test(clause)) {
+        return fullMatch;
+      }
       if (lastPunc === '.' && (charAfterMatch === undefined || !/[A-Z]/u.test(charAfterMatch))) {
         return fullMatch;
       }
@@ -276,10 +377,62 @@ function addSemBrToParagraph(paragraph: string): string {
     }
   );
 
+  text = text.replace(CUSTOM_PLACEHOLDER_REGEX, (_match: string, idx: string) => customMatches[Number(idx)] ?? '');
   text = text.replace(CODE_PLACEHOLDER_REGEX, (_match: string, idx: string) => codespans[Number(idx)] ?? '');
+  text = text.replace(CITATION_PLACEHOLDER_REGEX, (_match: string, idx: string) => citations[Number(idx)] ?? '');
+  text = text.replace(LOCATOR_PLACEHOLDER_REGEX, (_match: string, idx: string) => locators[Number(idx)] ?? '');
   text = text.replace(URL_PLACEHOLDER_REGEX, (_match: string, idx: string) => urls[Number(idx)] ?? '');
 
+  if (options.isolatePandocCitations) {
+    text = isolateSentenceFinalPandocCitations(text);
+  }
+
   return text;
+}
+
+function buildSemBrLineBreakMarkers(view: EditorView): DecorationSet {
+  // @ts-expect-error Obsidian's StateField type is nominally distinct from the direct CodeMirror import.
+  if (!view.state.field(editorLivePreviewField, false)) {
+    return Decoration.none;
+  }
+
+  const builder = new RangeSetBuilder<Decoration>();
+  const doc = view.state.doc;
+  let lastLineNumber = 0;
+
+  for (const range of view.visibleRanges) {
+    for (let pos = range.from; pos <= range.to;) {
+      const line = doc.lineAt(pos);
+      if (line.number !== lastLineNumber && shouldMarkSemBrLineBreak(line.text, line.number, doc)) {
+        builder.add(line.to, line.to, semBrLineBreakMarkerDecoration);
+        lastLineNumber = line.number;
+      }
+      if (line.to >= doc.length) {
+        break;
+      }
+      pos = line.to + 1;
+    }
+  }
+
+  return builder.finish();
+}
+
+function compileCustomProtectedRegexes(rawRegexes: readonly string[]): RegExp[] {
+  const regexes: RegExp[] = [];
+
+  for (const rawRegex of rawRegexes) {
+    const regex = parseCustomProtectedRegex(rawRegex);
+    if (!regex) {
+      continue;
+    }
+    regex.lastIndex = 0;
+    if (regex.test('')) {
+      continue;
+    }
+    regexes.push(regex);
+  }
+
+  return regexes;
 }
 
 function getParagraphState(paragraph: string): ParagraphSemBrState {
@@ -287,7 +440,7 @@ function getParagraphState(paragraph: string): ParagraphSemBrState {
     return 'skip';
   }
 
-  const lines = paragraph.split('\n');
+  const lines = paragraph.split('\n').filter((line) => !isBracketedPandocCitationLine(line));
   if (lines.length === 1) {
     return 'add';
   }
@@ -320,6 +473,11 @@ function getParagraphState(paragraph: string): ParagraphSemBrState {
   return 'add';
 }
 
+function isBracketedPandocCitationLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed !== '' && trimmed.replace(BRACKETED_PANDOC_CITATION_REGEX, '').trim() === '';
+}
+
 function isNonProseLine(line: string): boolean {
   return (
     HEADING_LINE_REGEX.test(line)
@@ -331,15 +489,132 @@ function isNonProseLine(line: string): boolean {
   );
 }
 
+function isolateSentenceFinalPandocCitations(str: string): string {
+  return str.replace(
+    SENTENCE_FINAL_CITATION_REGEX,
+    (fullMatch: string, sentencePunc: string | undefined, citation: string, citationPunc: string | undefined): string => {
+      const punc = sentencePunc ?? citationPunc;
+      if (!punc) {
+        return fullMatch;
+      }
+      return `${punc}\n${citation}`;
+    }
+  );
+}
+
 function isProseParagraph(paragraph: string): boolean {
   return paragraph.split('\n').every((line) => !isNonProseLine(line));
 }
 
-function removeSemBr(str: string): string {
-  return str.replace(SEMBR_REMOVE_REGEX, '$<punc> ');
+function parseCustomProtectedRegex(rawRegex: string): null | RegExp {
+  const trimmed = rawRegex.trim();
+  if (trimmed === '') {
+    return null;
+  }
+
+  const literal = parseRegexLiteral(trimmed);
+  const source = literal?.source ?? trimmed;
+  const flags = literal?.flags ?? 'u';
+  const globalFlags = addGlobalRegexFlag(flags.replaceAll('y', ''));
+
+  try {
+    return new RegExp(source, globalFlags);
+  } catch {
+    return null;
+  }
 }
 
-function transformNoteContent(rawContent: string, mode: SemBrTransformMode): string {
+function parseRegexLiteral(rawRegex: string): null | ParsedCustomRegexLiteral {
+  if (!rawRegex.startsWith('/')) {
+    return null;
+  }
+
+  let escaped = false;
+  let inCharacterClass = false;
+  for (let i = 1; i < rawRegex.length; i++) {
+    const char = rawRegex[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '[') {
+      inCharacterClass = true;
+      continue;
+    }
+    if (char === ']') {
+      inCharacterClass = false;
+      continue;
+    }
+    if (char === '/' && !inCharacterClass) {
+      return {
+        flags: rawRegex.slice(i + 1),
+        source: rawRegex.slice(1, i)
+      };
+    }
+  }
+
+  return null;
+}
+
+const semBrLineBreakMarkerDecoration = Decoration.widget({
+  side: 1,
+  widget: new SemBrLineBreakMarkerWidget()
+});
+
+const semBrLineBreakMarkerExtension = EditorView.decorations.of(buildSemBrLineBreakMarkers);
+
+function removeSemBr(str: string): string {
+  return str
+    .replace(SEMBR_REMOVE_REGEX, '$<punc> ')
+    .replace(CITATION_LINE_BREAK_REGEX, '$<citation> ');
+}
+
+function repairBrokenLocatorClusters(str: string): string {
+  const lines = str.split('\n');
+  const repaired: string[] = [];
+
+  for (const line of lines) {
+    const previous = repaired.at(-1);
+    const trimmedLine = line.trimStart();
+    if (
+      previous
+      && trimmedLine !== ''
+      && (LOCATOR_PREFIX_LINE_END_REGEX.test(previous.trimEnd()) || LOCATOR_CONTINUATION_LINE_REGEX.test(trimmedLine))
+      && !isNonProseLine(trimmedLine)
+    ) {
+      repaired[repaired.length - 1] = `${previous} ${trimmedLine}`;
+    } else {
+      repaired.push(line);
+    }
+  }
+
+  return repaired.join('\n');
+}
+
+function shouldMarkSemBrLineBreak(lineText: string, lineNumber: number, doc: Text): boolean {
+  if (lineNumber >= doc.lines) {
+    return false;
+  }
+  if (!SEMBR_LINE_REGEX.test(lineText) || lineText.length < SEMBR_MIN_LINE_LENGTH) {
+    return false;
+  }
+  if (isNonProseLine(lineText)) {
+    return false;
+  }
+
+  const nextLineText = doc.line(lineNumber + 1).text;
+  if (nextLineText.length < SEMBR_MIN_LINE_LENGTH && !isBracketedPandocCitationLine(nextLineText)) {
+    return false;
+  }
+
+  return isProseParagraph(`${lineText}\n${nextLineText}`);
+}
+
+function transformNoteContent(rawContent: string, mode: SemBrTransformMode, options: SemBrTransformOptions): string {
   let noteContent = rawContent.replace(TRAILING_NEWLINES_REGEX, '');
 
   // Extract YAML frontmatter.
@@ -381,9 +656,10 @@ function transformNoteContent(rawContent: string, mode: SemBrTransformMode): str
   // Transform per-paragraph — each paragraph decides its own direction.
   proseParts = proseParts.map((prose) => {
     const paragraphs = prose.split(PARAGRAPH_SPLIT_REGEX);
-    const transformed = paragraphs.map((paragraph) => transformParagraph(paragraph, mode));
+    const transformed = paragraphs.map((paragraph) => transformParagraph(paragraph, mode, options));
     const result = transformed.join('\n\n');
-    return result.replace(FOOTNOTE_REGEX, (footnote) => {
+    const repaired = repairBrokenLocatorClusters(result);
+    return repaired.replace(FOOTNOTE_REGEX, (footnote) => {
       return mode === 'toggle' ? removeSemBr(footnote) : footnote;
     });
   });
@@ -416,7 +692,7 @@ function transformNoteContent(rawContent: string, mode: SemBrTransformMode): str
   return `${noteContent}\n`;
 }
 
-function transformParagraph(paragraph: string, mode: SemBrTransformMode): string {
+function transformParagraph(paragraph: string, mode: SemBrTransformMode, options: SemBrTransformOptions): string {
   const state = getParagraphState(paragraph);
   if (state === 'skip') {
     return paragraph;
@@ -424,7 +700,7 @@ function transformParagraph(paragraph: string, mode: SemBrTransformMode): string
   if (state === 'remove') {
     return mode === 'toggle' ? removeSemBr(paragraph) : paragraph;
   }
-  return addSemBrToParagraph(paragraph);
+  return addSemBrToParagraph(paragraph, options);
 }
 
 function wrapSelectionWithSemBrOff(editor: Editor): void {

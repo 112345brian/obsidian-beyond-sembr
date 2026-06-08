@@ -1,3 +1,14 @@
 .sembr-settings-textarea {
   width: 100%;
 }
+
+.sembr-live-preview-break-marker {
+  color: var(--text-muted);
+  font-size: 0.75em;
+  line-height: 1;
+  opacity: 0.35;
+  padding-inline: 0.15em;
+  pointer-events: none;
+  user-select: none;
+  vertical-align: 0.08em;
+}
