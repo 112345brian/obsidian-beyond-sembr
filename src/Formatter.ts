@@ -5,11 +5,11 @@ const UNORDERED_LIST_LINE_REGEX = /^[-*+]\s/u;
 const ORDERED_LIST_LINE_REGEX = /^\d+\.\s/u;
 const HORIZONTAL_RULE_REGEX = /^(?:---|\*\*\*|___)\s*$/u;
 
-const SEMBR_REMOVE_REGEX = /(?<punc>[.,:;?!—]) ?\n(?!\n)/gmu;
-const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.,:;?!—](?: ?\[.+\])?(?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
+const SEMBR_REMOVE_REGEX = /(?<punc>[.,:;?!—…]) ?\n(?!\n)/gmu;
+const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.,:;?!—…](?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
 const ET_AL_REGEX = /\bet al\. $/u;
 const FOOTNOTE_REGEX = /\n\[\^.*?(?=\[\n\^|\n\n|$)/gsu;
-const SEMBR_LINE_REGEX = /[.,:;?!—] ?$/u;
+const SEMBR_LINE_REGEX = /[.,:;?!—…] ?$/u;
 
 const URL_REGEX = /https?:\/\/\S+/gu;
 const INLINE_CODE_REGEX = /`[^`\n]+`/gu;
@@ -209,10 +209,10 @@ function addSemBrToParagraph(paragraph: string, options: TransformNoteContentOpt
       if (ET_AL_REGEX.test(clause)) {
         return fullMatch;
       }
-      if (lastPunc === '.' && (charAfterMatch === undefined || !/[A-Z]/u.test(charAfterMatch))) {
+      if (lastPunc === '.' && (charAfterMatch === undefined || (!/[A-Z]/u.test(charAfterMatch) && charAfterMatch !== '['))) {
         return fullMatch;
       }
-      return `${clause}\n`;
+      return `${clause.slice(0, -1)}\n`;
     }
   );
 
