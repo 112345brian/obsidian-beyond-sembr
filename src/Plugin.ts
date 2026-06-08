@@ -119,6 +119,7 @@ export class Plugin extends ObsidianPlugin {
   }
 
   public refreshEditorExtensions(): void {
+    this.semBrStateField = null;
     this.editorExtensions.splice(0, this.editorExtensions.length, ...this.getEditorExtensions());
     this.app.workspace.updateOptions();
   }
