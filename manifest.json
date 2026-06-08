@@ -4,7 +4,7 @@
   "description": "Apply and remove Semantic Line Breaks (SemBr).",
   "id": "obsidian-sembr",
   "isDesktopOnly": false,
-  "minAppVersion": "1.4.0",
+  "minAppVersion": "1.12.7",
   "name": "Semantic Line Breaker",
-  "version": "0.8.0"
+  "version": "0.9.0"
 }
