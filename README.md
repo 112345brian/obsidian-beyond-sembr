@@ -84,6 +84,10 @@ Exactly as-is too.
 
 **Show line break markers** — show subtle markers for hidden semantic line breaks in Live Preview.
 
+**Repair locator clusters** — join page/location references back together if a previous format split them across lines.
+
+**Use custom protected regexes** — enable or disable the custom protection list without deleting it.
+
 **Custom protected regexes** — protect additional source spans from line breaks.
 Enter one JavaScript regex per line, either as a bare source or `/source/flags`.
 Invalid regexes and regexes that can match an empty string are ignored.
@@ -121,3 +125,23 @@ https://github.com/112345brian/obsidian-beyond-sembr
 
 Or manually: download `main.js`, `manifest.json`, and `styles.css` from the latest release
 and drop them in `.obsidian/plugins/beyond-sembr/`.
+
+### Existing Semantic Line Breaker installs
+
+The Obsidian plugin id changed from `obsidian-sembr` to `beyond-sembr`.
+Obsidian treats that as a different plugin folder.
+If you previously installed Semantic Line Breaker manually, remove or disable the old `.obsidian/plugins/obsidian-sembr/` folder after installing Beyond SemBr.
+
+Settings from older Beyond SemBr data are normalized on load:
+missing booleans receive defaults, malformed lists become empty lists, and invalid idle timeouts reset to the default.
+
+## Audit Checklist
+
+Before a release, verify citation rendering in your target workflow:
+
+- Live Preview keeps isolated sentence-final citations visually attached to the sentence.
+- Reading View keeps isolated sentence-final citations visually attached to the sentence.
+- Your Pandoc/export workflow treats a line break before `[@key]` as ordinary whitespace.
+- BRAT installs from `https://github.com/112345brian/obsidian-beyond-sembr`.
+- Release artifacts contain `main.js`, `manifest.json`, and `styles.css`.
+- `manifest.json` uses id `beyond-sembr` and name `Beyond SemBr`.

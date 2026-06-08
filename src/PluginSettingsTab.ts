@@ -90,6 +90,30 @@ export class PluginSettingsTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName('Repair locator clusters')
+      .setDesc('Join page or location references back together if a prior format split them across lines.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.repairLocatorClusters)
+          .onChange(convertAsyncToSync(async (value: boolean) => {
+            this.plugin.settings.repairLocatorClusters = value;
+            await this.plugin.saveSettings();
+          }));
+      });
+
+    new Setting(containerEl)
+      .setName('Use custom protected regexes')
+      .setDesc('Apply the custom regex list below when protecting spans from line breaks.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.enableCustomProtectedRegexes)
+          .onChange(convertAsyncToSync(async (value: boolean) => {
+            this.plugin.settings.enableCustomProtectedRegexes = value;
+            await this.plugin.saveSettings();
+          }));
+      });
+
+    new Setting(containerEl)
       .setName('Custom protected regexes')
       .setDesc('Protect custom spans from line breaks. One JavaScript regex per line, as source or /source/flags.')
       .addTextArea((text) => {

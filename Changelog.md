@@ -6,6 +6,10 @@
 - Rename Obsidian plugin id to `beyond-sembr`
 - Treat page/location locator clusters such as `Pg. 193 A51/B75` as indivisible citation metadata and repair already-broken locator splits
 - Add custom protected regex settings so users can define additional spans that must not be split
+- Add formatter fixture coverage for citation locators, custom regex protection, citation isolation, locator repair, and toggle round trips
+- Add toggles for custom protected regex use and locator cluster repair
+- Harden saved settings normalization for older or malformed settings data
+- Document install migration and release/rendering audit checks
 
 ## 0.9.0 — 2026-06-08
 
