@@ -10,6 +10,7 @@
   "words": [
     "blockquotes",
     "Breaked",
+    "codespans",
     "commitlint",
     "Dataview",
     "deconvert",
