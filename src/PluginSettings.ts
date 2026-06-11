@@ -19,6 +19,6 @@ export class PluginSettings {
   public repairLocatorClusters = true;
   public sentenceOnly = true;
   public showLivePreviewLineBreakMarkers = true;
-  public smartCopy = false;
+  public smartCopy = true;
   public smartPaste = false;
 }

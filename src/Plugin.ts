@@ -325,7 +325,7 @@ export class Plugin extends ObsidianPlugin {
     this.settings.repairLocatorClusters = normalizeBoolean(this.settings.repairLocatorClusters, true);
     this.settings.sentenceOnly = normalizeBoolean(this.settings.sentenceOnly, true);
     this.settings.showLivePreviewLineBreakMarkers = normalizeBoolean(this.settings.showLivePreviewLineBreakMarkers, true);
-    this.settings.smartCopy = normalizeBoolean(this.settings.smartCopy, false);
+    this.settings.smartCopy = normalizeBoolean(this.settings.smartCopy, true);
     this.settings.smartPaste = normalizeBoolean(this.settings.smartPaste, false);
     if (!Number.isFinite(this.settings.idleTimeoutSeconds) || this.settings.idleTimeoutSeconds < MIN_IDLE_TIMEOUT_SECONDS) {
       this.settings.idleTimeoutSeconds = DEFAULT_IDLE_TIMEOUT_SECONDS;
