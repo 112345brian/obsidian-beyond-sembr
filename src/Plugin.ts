@@ -9,12 +9,14 @@ import type {
 import {
   EditorState,
   Facet,
+  Prec,
   RangeSetBuilder,
   StateField
 } from '@codemirror/state';
 import {
   Decoration,
   EditorView,
+  keymap,
   WidgetType
 } from '@codemirror/view';
 import {
@@ -213,8 +215,9 @@ export class Plugin extends ObsidianPlugin {
   }
 
   private getSmartCopyExtension(): Extension {
-    return EditorView.domEventHandlers({
-      copy: (event: ClipboardEvent, view: EditorView): boolean => {
+    return Prec.highest(keymap.of([{
+      key: 'Mod-c',
+      run: (view: EditorView): boolean => {
         const { state } = view;
         const selectedText = state.sliceDoc(state.selection.main.from, state.selection.main.to);
         if (!selectedText) {
@@ -226,14 +229,10 @@ export class Plugin extends ObsidianPlugin {
           return false;
         }
         const transformed = transformNoteContent(selectedText, 'remove', this.getTransformOptions());
-        if (transformed.trimEnd() === selectedText.trimEnd()) {
-          return false;
-        }
-        event.preventDefault();
-        event.clipboardData?.setData('text/plain', transformed.trimEnd());
+        navigator.clipboard.writeText(transformed.trimEnd()).catch(() => {/* Clipboard access denied */});
         return true;
       }
-    });
+    }]));
   }
 
   private getSmartPasteExtension(): Extension {
