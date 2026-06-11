@@ -117,6 +117,19 @@ export class PluginSettingsTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName('Smart copy')
+      .setDesc('Automatically strip semantic line breaks when copying, so the clipboard contains flowing prose instead of raw line-broken source.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.smartCopy)
+          .onChange(convertAsyncToSync(async (value: boolean) => {
+            this.plugin.settings.smartCopy = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshEditorExtensions();
+          }));
+      });
+
+    new Setting(containerEl)
       .setName('Smart paste')
       .setDesc('Automatically apply semantic line breaks when pasting text that does not already have them.')
       .addToggle((toggle) => {

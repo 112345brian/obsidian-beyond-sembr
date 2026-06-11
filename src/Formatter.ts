@@ -52,7 +52,7 @@ const SENTENCE_TERMINAL_LINE_END_REGEX = /[.!?]\]?$/u;
 const SENTENCE_FINAL_CITATION_REGEX = /(?<sentencePunc>[.!?])? ?(?<citation>\[[^\]\n]*@[^\]\n]*\])(?<citationPunc>[.!?])?(?= |$)/gu;
 const SEMBR_MIN_LINE_LENGTH = 25;
 
-export type SemBrTransformMode = 'add' | 'toggle';
+export type SemBrTransformMode = 'add' | 'remove' | 'toggle';
 export interface SemBrTransformSettings {
   readonly customProtectedRegexes: readonly string[];
   readonly enableCustomProtectedRegexes: boolean;
@@ -467,7 +467,10 @@ function transformParagraph(paragraph: string, mode: SemBrTransformMode, options
     return paragraph;
   }
   if (state === 'remove') {
-    return mode === 'toggle' ? removeSemBr(paragraph) : paragraph;
+    return (mode === 'toggle' || mode === 'remove') ? removeSemBr(paragraph) : paragraph;
+  }
+  if (mode === 'remove') {
+    return paragraph;
   }
   return addSemBrToParagraph(paragraph, options);
 }

@@ -109,6 +109,13 @@ export class Plugin extends ObsidianPlugin {
     });
     this.addCommand({
       editorCallback: async (editor: Editor): Promise<void> => {
+        await this.copyWithoutSemBr(editor);
+      },
+      id: 'copy-without-sembr',
+      name: 'Copy without semantic line breaks'
+    });
+    this.addCommand({
+      editorCallback: async (editor: Editor): Promise<void> => {
         await this.pasteWithSemBr(editor);
       },
       id: 'paste-with-sembr',
@@ -164,6 +171,15 @@ export class Plugin extends ObsidianPlugin {
     this.replaceEditorContent(editor, oldContent, newContent);
   }
 
+  private async copyWithoutSemBr(editor: Editor): Promise<void> {
+    const selected = editor.getSelection();
+    if (!selected) {
+      return;
+    }
+    const transformed = transformNoteContent(selected, 'remove', this.getTransformOptions());
+    await navigator.clipboard.writeText(transformed.trimEnd());
+  }
+
   private getEditorExtensions(): Extension[] {
     const extensions: Extension[] = [];
     if (this.settings.showLivePreviewLineBreakMarkers) {
@@ -172,6 +188,9 @@ export class Plugin extends ObsidianPlugin {
         semBrSentenceOnlyFacet.of(this.settings.sentenceOnly),
         semBrLineBreakMarkerStateField
       );
+    }
+    if (this.settings.smartCopy) {
+      extensions.push(this.getSmartCopyExtension());
     }
     if (this.settings.smartPaste) {
       extensions.push(this.getSmartPasteExtension());
@@ -191,6 +210,30 @@ export class Plugin extends ObsidianPlugin {
       return 'force';
     }
     return null;
+  }
+
+  private getSmartCopyExtension(): Extension {
+    return EditorView.domEventHandlers({
+      copy: (event: ClipboardEvent, view: EditorView): boolean => {
+        const { state } = view;
+        const selectedText = state.sliceDoc(state.selection.main.from, state.selection.main.to);
+        if (!selectedText) {
+          return false;
+        }
+        // @ts-expect-error -- Obsidian's StateField type is nominally distinct from the direct CodeMirror import.
+        const file = (view.state.field(editorInfoField, false) as ObsidianEditorInfoField | undefined)?.file ?? null;
+        if (file !== null && !this.isFileEnabledForSemBr(file)) {
+          return false;
+        }
+        const transformed = transformNoteContent(selectedText, 'remove', this.getTransformOptions());
+        if (transformed.trimEnd() === selectedText.trimEnd()) {
+          return false;
+        }
+        event.preventDefault();
+        event.clipboardData?.setData('text/plain', transformed.trimEnd());
+        return true;
+      }
+    });
   }
 
   private getSmartPasteExtension(): Extension {
@@ -282,6 +325,7 @@ export class Plugin extends ObsidianPlugin {
     this.settings.repairLocatorClusters = normalizeBoolean(this.settings.repairLocatorClusters, true);
     this.settings.sentenceOnly = normalizeBoolean(this.settings.sentenceOnly, true);
     this.settings.showLivePreviewLineBreakMarkers = normalizeBoolean(this.settings.showLivePreviewLineBreakMarkers, true);
+    this.settings.smartCopy = normalizeBoolean(this.settings.smartCopy, false);
     this.settings.smartPaste = normalizeBoolean(this.settings.smartPaste, false);
     if (!Number.isFinite(this.settings.idleTimeoutSeconds) || this.settings.idleTimeoutSeconds < MIN_IDLE_TIMEOUT_SECONDS) {
       this.settings.idleTimeoutSeconds = DEFAULT_IDLE_TIMEOUT_SECONDS;
