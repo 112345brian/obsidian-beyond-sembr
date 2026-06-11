@@ -2,8 +2,12 @@ import type { Text } from '@codemirror/state';
 
 const HEADING_LINE_REGEX = /^#{1,6}\s/u;
 const UNORDERED_LIST_LINE_REGEX = /^[-*+]\s/u;
-const ORDERED_LIST_LINE_REGEX = /^\d+\.\s/u;
+const ORDERED_LIST_LINE_REGEX = /^\d+\.(?:\s|$)/u;
 const HORIZONTAL_RULE_REGEX = /^(?:---|\*\*\*|___)\s*$/u;
+const DIALOGUE_LINE_REGEX = /^(?:\*\*[^*\n]+\*\*\s|\[\[[^\]\n]+\]\]:\s|[a-z0-9][a-z0-9 _.-]*:\s)\S/u;
+const TRANSCLUSION_LINE_REGEX = /^!\[\[[^\]\n]+\]\]/u;
+const WIKILINK_ONLY_LINE_REGEX = /^\[\[[^\]\n]+\]\]\s*$/u;
+const HARD_BREAK_LINE_REGEX = / {2}$/u;
 
 const SEMBR_REMOVE_REGEX = /(?<punc>[.,:;?!…]) ?\n(?!\n)/gmu;
 const SEMBR_CLAUSE_REGEX = /(?<clause>[^|.\n]{25,}?[^:][.,:;?!…](?<trailingSpace> ))(?!\n\n| |.*\|.*$|p\. [1-9-]+\]|@|\d)(?=[^|.\n]{25,})/gmu;
@@ -27,12 +31,19 @@ const PARAGRAPH_SPLIT_REGEX = /\n{2,}/u;
 const CODE_BLOCK_DELIMITER = '```';
 const TRAILING_NEWLINES_REGEX = /\n+$/u;
 const CODE_BLOCK_MODULO = 2;
-const URL_PLACEHOLDER_REGEX = /SEMBR_URL_(?<idx>\d+)/gu;
-const CODE_PLACEHOLDER_REGEX = /SEMBR_CODE_(?<idx>\d+)/gu;
-const CITATION_PLACEHOLDER_REGEX = /SEMBR_CITATION_(?<idx>\d+)/gu;
-const CUSTOM_PLACEHOLDER_REGEX = /SEMBR_CUSTOM_(?<idx>\d+)/gu;
-const LOCATOR_PLACEHOLDER_REGEX = /SEMBR_LOCATOR_(?<idx>\d+)/gu;
-const SEMBR_OFF_PLACEHOLDER_REGEX = /SEMBR_OFF_(?<idx>\d+)/gu;
+// \x00 (null byte) is used as a sentinel that cannot appear in valid UTF-8 text.
+// eslint-disable-next-line no-control-regex -- \x00 sentinel; see comment above
+const URL_PLACEHOLDER_REGEX = /\x00SEMBR_URL_(?<idx>\d+)\x00/gu;
+// eslint-disable-next-line no-control-regex -- \x00 sentinel; see comment above
+const CODE_PLACEHOLDER_REGEX = /\x00SEMBR_CODE_(?<idx>\d+)\x00/gu;
+// eslint-disable-next-line no-control-regex -- \x00 sentinel; see comment above
+const CITATION_PLACEHOLDER_REGEX = /\x00SEMBR_CITATION_(?<idx>\d+)\x00/gu;
+// eslint-disable-next-line no-control-regex -- \x00 sentinel; see comment above
+const CUSTOM_PLACEHOLDER_REGEX = /\x00SEMBR_CUSTOM_(?<idx>\d+)\x00/gu;
+// eslint-disable-next-line no-control-regex -- \x00 sentinel; see comment above
+const LOCATOR_PLACEHOLDER_REGEX = /\x00SEMBR_LOCATOR_(?<idx>\d+)\x00/gu;
+// eslint-disable-next-line no-control-regex -- \x00 sentinel; see comment above
+const SEMBR_OFF_PLACEHOLDER_REGEX = /\x00SEMBR_OFF_(?<idx>\d+)\x00/gu;
 const CITATION_LINE_BREAK_REGEX = /(?<citation>\[[^\]\n]*@[^\]\n]*\])\n(?!\n)/gu;
 const LOCATOR_CONTINUATION_LINE_REGEX =
   /^(?:\d+(?:[-–]\d+)?\s+[A-Z]\d+(?:\/[A-Z]?\d+|[-–][A-Z]?\d+)?|[A-Z]\d+(?:\/[A-Z]?\d+|[-–][A-Z]?\d+)|§ ?\d+|ch\. ?\d+\]?)(?:\s|$)/u;
@@ -72,6 +83,21 @@ export function createTransformNoteContentOptions(settings: SemBrTransformSettin
   };
 }
 
+export function isNonProseLine(line: string): boolean {
+  return (
+    HEADING_LINE_REGEX.test(line)
+    || UNORDERED_LIST_LINE_REGEX.test(line)
+    || ORDERED_LIST_LINE_REGEX.test(line)
+    || line.startsWith('>')
+    || line.startsWith('|')
+    || HORIZONTAL_RULE_REGEX.test(line)
+    || DIALOGUE_LINE_REGEX.test(line)
+    || TRANSCLUSION_LINE_REGEX.test(line)
+    || WIKILINK_ONLY_LINE_REGEX.test(line)
+    || HARD_BREAK_LINE_REGEX.test(line)
+  );
+}
+
 export function shouldCollapseNewline(lineText: string, lineNumber: number, doc: Text): boolean {
   if (lineNumber >= doc.lines) {
     return false;
@@ -94,18 +120,29 @@ export function shouldMarkSemBrLineBreak(lineText: string, lineNumber: number, d
     return false;
   }
   const lineRegex = sentenceOnly ? SEMBR_SENTENCE_LINE_REGEX : SEMBR_LINE_REGEX;
-  if (!lineRegex.test(lineText) || lineText.length < SEMBR_MIN_LINE_LENGTH) {
+  if (!lineRegex.test(lineText)) {
     return false;
   }
   if (isNonProseLine(lineText)) {
     return false;
   }
-
-  const nextLineText = doc.line(lineNumber + 1).text;
-  if (nextLineText.length < SEMBR_MIN_LINE_LENGTH && !isBracketedPandocCitationLine(nextLineText)) {
+  if (lineText.length < SEMBR_MIN_LINE_LENGTH) {
+    return false;
+  }
+  if (isBracketedPandocCitationLine(lineText)) {
     return false;
   }
 
+  const nextLineText = doc.line(lineNumber + 1).text;
+  if (nextLineText === '') {
+    return false;
+  }
+  if (nextLineText.length < SEMBR_MIN_LINE_LENGTH) {
+    return false;
+  }
+  if (isBracketedPandocCitationLine(nextLineText)) {
+    return false;
+  }
   return isProseParagraph(`${lineText}\n${nextLineText}`);
 }
 
@@ -117,13 +154,29 @@ export function transformNoteContent(rawContent: string, mode: SemBrTransformMod
     noteContent = noteContent.replace(yamlHeader[0], '');
   }
 
+  // Mask sembr-off blocks before splitting on code fences so that a fence
+  // Inside a protected block can't bisect the block across prose segments.
+  const sembrOffBlocks: string[] = [];
+  noteContent = noteContent.replace(SEMBR_OFF_BLOCK_REGEX, (block) => {
+    const idx = sembrOffBlocks.length;
+    sembrOffBlocks.push(block);
+    return `\x00SEMBR_OFF_${String(idx)}\x00`;
+  });
+
   const hasCodeBlocks = noteContent.includes(CODE_BLOCK_DELIMITER);
   const codeBlocks: string[] = [];
   let proseParts: string[] = [];
 
   if (hasCodeBlocks) {
+    const splitParts = noteContent.split(CODE_BLOCK_DELIMITER);
+    // An even number of segments means an odd number of ``` delimiters —
+    // Unbalanced fences (e.g. the user is mid-edit). Skip transformation
+    // Entirely rather than misclassifying large regions as code.
+    if (splitParts.length % CODE_BLOCK_MODULO === 0) {
+      return rawContent;
+    }
     let i = 0;
-    for (const part of noteContent.split(CODE_BLOCK_DELIMITER)) {
+    for (const part of splitParts) {
       if (i % CODE_BLOCK_MODULO === 0) {
         proseParts.push(part);
       } else {
@@ -134,15 +187,6 @@ export function transformNoteContent(rawContent: string, mode: SemBrTransformMod
   } else {
     proseParts.push(noteContent);
   }
-
-  const sembrOffBlocks: string[] = [];
-  proseParts = proseParts.map((prose) => {
-    return prose.replace(SEMBR_OFF_BLOCK_REGEX, (block) => {
-      const idx = sembrOffBlocks.length;
-      sembrOffBlocks.push(block);
-      return `SEMBR_OFF_${String(idx)}`;
-    });
-  });
 
   proseParts = proseParts.map((prose) => {
     const paragraphs = prose.split(PARAGRAPH_SPLIT_REGEX);
@@ -198,32 +242,32 @@ function addSemBrToParagraph(paragraph: string, options: TransformNoteContentOpt
     text = text.replace(customRegex, (match: string) => {
       const idx = customMatches.length;
       customMatches.push(match);
-      return `SEMBR_CUSTOM_${String(idx)}`;
+      return `\x00SEMBR_CUSTOM_${String(idx)}\x00`;
     });
   }
 
   text = text.replace(URL_REGEX, (url) => {
     const idx = urls.length;
     urls.push(url);
-    return `SEMBR_URL_${String(idx)}`;
+    return `\x00SEMBR_URL_${String(idx)}\x00`;
   });
 
   text = text.replace(INLINE_CODE_REGEX, (span) => {
     const idx = codespans.length;
     codespans.push(span);
-    return `SEMBR_CODE_${String(idx)}`;
+    return `\x00SEMBR_CODE_${String(idx)}\x00`;
   });
 
   text = text.replace(PANDOC_CITATION_REGEX, (citation) => {
     const idx = citations.length;
     citations.push(citation);
-    return `SEMBR_CITATION_${String(idx)}`;
+    return `\x00SEMBR_CITATION_${String(idx)}\x00`;
   });
 
   text = text.replace(LOCATOR_CLUSTER_REGEX, (locator) => {
     const idx = locators.length;
     locators.push(locator);
-    return `SEMBR_LOCATOR_${String(idx)}`;
+    return `\x00SEMBR_LOCATOR_${String(idx)}\x00`;
   });
 
   text = text.replace(EM_DASH_SOFT_BREAK_REGEX, '—');
@@ -312,17 +356,6 @@ function getParagraphState(paragraph: string, sentenceOnly = false): ParagraphSe
 function isBracketedPandocCitationLine(line: string): boolean {
   const trimmed = line.trim();
   return trimmed !== '' && trimmed.replace(BRACKETED_PANDOC_CITATION_REGEX, '').trim() === '';
-}
-
-function isNonProseLine(line: string): boolean {
-  return (
-    HEADING_LINE_REGEX.test(line)
-    || UNORDERED_LIST_LINE_REGEX.test(line)
-    || ORDERED_LIST_LINE_REGEX.test(line)
-    || line.startsWith('>')
-    || line.startsWith('|')
-    || HORIZONTAL_RULE_REGEX.test(line)
-  );
 }
 
 function isolateSentenceFinalPandocCitations(str: string): string {

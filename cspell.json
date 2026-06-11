@@ -21,8 +21,12 @@
     "Pandoc",
     "pandoc",
     "punc",
+    "recognised",
     "sembr",
+    "softprops",
+    "transclusions",
     "tsbuildinfo",
+    "versiondb",
     "wikilink",
     "wikilinks"
   ],

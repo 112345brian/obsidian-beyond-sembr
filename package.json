@@ -13,6 +13,8 @@
   "author": "112345brian",
   "type": "module",
   "scripts": {
+    "format-vault": "jiti scripts/format-vault.ts",
+    "format-vault:dry": "jiti scripts/format-vault.ts --dry-run",
     "build": "jiti scripts/build.ts",
     "build:clean": "jiti scripts/build-clean.ts",
     "build:compile:typescript": "jiti scripts/build-compile-typescript.ts",
@@ -30,6 +32,7 @@
     "version": "jiti scripts/version.ts"
   },
   "devDependencies": {
+    "@commitlint/types": "^21.0.1",
     "@tsconfig/strictest": "latest",
     "@types/node": "latest",
     "jiti": "latest",
@@ -44,8 +47,6 @@
   },
   "dependencies": {
     "@codemirror/state": "^6.5.0",
-    "@codemirror/view": "^6.38.6",
-    "@commitlint/types": "^21.0.1",
-    "obsidian-integration-testing": "^4.2.3"
+    "@codemirror/view": "^6.38.6"
   }
 }

@@ -101,7 +101,8 @@ Rules can be `key` (any value) or `key: value` (exact match).
 
 ## How Breaks Are Inserted
 
-- Breaks fire after `.,:;?!—…` with at least 25 characters of prose on each side.
+- Breaks fire after `.,:;?!…` with at least 25 characters of prose on each side.
+- Em-dashes (`—`) are not break points; a soft break immediately after an em-dash is collapsed into the em-dash instead.
 - Periods only break when followed by an uppercase letter or `[` (a wikilink or bracket reference), avoiding most abbreviations.
 - `et al.` is treated as an abbreviation and not a break point.
 - URLs are extracted before processing and restored verbatim.

@@ -6,9 +6,11 @@ import {
 import { convertAsyncToSync } from 'obsidian-dev-utils/async';
 
 import type { Plugin } from './Plugin.ts';
-import type { AutoApplyMode } from './PluginSettings.ts';
 
-import { MIN_IDLE_TIMEOUT_SECONDS } from './PluginSettings.ts';
+import {
+  isAutoApplyMode,
+  MIN_IDLE_TIMEOUT_SECONDS
+} from './PluginSettings.ts';
 
 const TEXTAREA_ROWS = 5;
 
@@ -115,6 +117,19 @@ export class PluginSettingsTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName('Smart paste')
+      .setDesc('Automatically apply semantic line breaks when pasting text that does not already have them.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.smartPaste)
+          .onChange(convertAsyncToSync(async (value: boolean) => {
+            this.plugin.settings.smartPaste = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshEditorExtensions();
+          }));
+      });
+
+    new Setting(containerEl)
       .setName('Use custom protected regexes')
       .setDesc('Apply the custom regex list below when protecting spans from line breaks.')
       .addToggle((toggle) => {
@@ -198,10 +213,6 @@ export class PluginSettingsTab extends PluginSettingTab {
         text.inputEl.addClass('sembr-settings-textarea');
       });
   }
-}
-
-function isAutoApplyMode(value: string): value is AutoApplyMode {
-  return value === 'off' || value === 'on-save' || value === 'on-idle';
 }
 
 function splitLines(value: string): string[] {
